@@ -1,0 +1,25 @@
+{
+  "name": "statin-bun",
+  "version": "0.0.1",
+  "description": "Time-series analytics and statistics and probabilistic data structures for `bun:sqlite`.",
+  "author": "Kenta Iwasaki <kenta@lithdew.net>",
+  "license": "MIT",
+  "homepage": "https://github.com/lithdew/statin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lithdew/statin.git"
+  },
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@datadog/sketches-js": "^2.1.1",
+    "outdent": "^0.8.0",
+    "protobufjs": "^7.4.0"
+  }
+}

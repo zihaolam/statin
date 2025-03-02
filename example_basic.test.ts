@@ -31,12 +31,12 @@ const result = dd.query(
   START_DATE + 120 * 1000 // end time
 );
 
-test("result", () => {
+test("basic example", () => {
   expect(stat).toMatchInlineSnapshot(`
     {
       "recordedAt": 1740830400190,
       "stat": {
-        "count": 3n,
+        "count": 3,
         "max": 200,
         "min": 100,
         "p50": 141.1912010207712,
@@ -52,7 +52,7 @@ test("result", () => {
     {
       "samples": [
         {
-          "count": 3n,
+          "count": 3,
           "end": 1740830460000,
           "max": 200,
           "min": 100,

@@ -201,7 +201,7 @@ test("result", () => {
     {
       "recordedAt": 1740830403000,
       "stat": {
-        "count": 4n,
+        "count": 4,
         "max": 2,
         "min": 1,
         "p50": 0.9900000000000001,
@@ -217,7 +217,7 @@ test("result", () => {
     {
       "recordedAt": 1740830403000,
       "stat": {
-        "count": 3n,
+        "count": 3,
         "max": 1,
         "min": -1,
         "p50": 0.9900000000000001,
@@ -233,7 +233,7 @@ test("result", () => {
     {
       "samples": [
         {
-          "count": 1n,
+          "count": 1,
           "end": 1740830402000,
           "max": 1,
           "min": 1,
@@ -245,7 +245,7 @@ test("result", () => {
           "sum": 1,
         },
         {
-          "count": 1n,
+          "count": 1,
           "end": 1740830403000,
           "max": -1,
           "min": -1,
@@ -257,7 +257,7 @@ test("result", () => {
           "sum": -1,
         },
         {
-          "count": 1n,
+          "count": 1,
           "end": 1740830404000,
           "max": 1,
           "min": 1,

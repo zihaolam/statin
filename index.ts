@@ -1,4 +1,4 @@
-import { DDSketch } from "@datadog/sketches-js";
+import { DDSketch } from "./ddsketch";
 import { Database } from "bun:sqlite";
 import { outdent } from "outdent";
 
@@ -21,7 +21,7 @@ export namespace dd {
             val real not null,
             recorded_at datetime not null,
             sum real not null default 0,
-            count integer not null default 0,
+            count real not null default 0,
             min real not null default 0,
             max real not null default 0,
             p50 real not null default 0,
@@ -38,7 +38,7 @@ export namespace dd {
             duration integer not null,
             start datetime not null,
             end datetime not null,
-            count integer not null default 0,
+            count real not null default 0,
             sum real not null default 0,
             min real not null default 0,
             max real not null default 0,
@@ -68,7 +68,7 @@ export namespace dd {
           sketch: Uint8Array;
           min: number;
           max: number;
-          count: number | bigint;
+          count: number;
           sum: number;
         },
         [string, string]
@@ -85,9 +85,13 @@ export namespace dd {
         next = next();
       }
 
-      const sketch = new DDSketch({ relativeAccuracy: 0.01 });
+      const sketch = new DDSketch();
 
-      sketch.accept(next);
+      sketch.add(next);
+      const count = 1;
+      const sum = next;
+      const min = next;
+      const max = next;
 
       db.query(
         `insert into stats (name, key, val, recorded_at, sketch, min, max, count, sum, p50, p90, p95, p99) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -96,15 +100,15 @@ export namespace dd {
         key,
         next,
         now,
-        sketch.toProto(),
-        sketch.min,
-        sketch.max,
-        sketch.count,
-        sketch.sum,
-        sketch.getValueAtQuantile(0.5),
-        sketch.getValueAtQuantile(0.9),
-        sketch.getValueAtQuantile(0.95),
-        sketch.getValueAtQuantile(0.99)
+        sketch.serialize(),
+        min,
+        max,
+        count,
+        sum,
+        sketch.getValueAtQuantile(0.5, { count }),
+        sketch.getValueAtQuantile(0.9, { count }),
+        sketch.getValueAtQuantile(0.95, { count }),
+        sketch.getValueAtQuantile(0.99, { count })
       );
 
       for (const interval of intervals) {
@@ -134,28 +138,28 @@ export namespace dd {
       throw new RangeError("Timestamp is in the past.");
     }
 
-    const sketch = DDSketch.fromProto(stat.sketch);
-    sketch.count = Number(stat.count);
-    sketch.sum = Number(stat.sum);
-    sketch.min = Number(stat.min);
-    sketch.max = Number(stat.max);
+    const sketch = DDSketch.deserialize(stat.sketch);
 
-    sketch.accept(next);
+    sketch.add(next);
+    const count = stat.count + 1;
+    const sum = stat.sum + next;
+    const min = Math.min(stat.min, next);
+    const max = Math.max(stat.max, next);
 
     db.query(
       `update stats set val = ?, recorded_at = ?, sketch = ?, min = ?, max = ?, count = ?, sum = ?, p50 = ?, p90 = ?, p95 = ?, p99 = ? where name = ? and key = ?`
     ).run(
       next,
       now,
-      sketch.toProto(),
-      sketch.min,
-      sketch.max,
-      sketch.count,
-      sketch.sum,
-      sketch.getValueAtQuantile(0.5),
-      sketch.getValueAtQuantile(0.9),
-      sketch.getValueAtQuantile(0.95),
-      sketch.getValueAtQuantile(0.99),
+      sketch.serialize(),
+      min,
+      max,
+      count,
+      sum,
+      sketch.getValueAtQuantile(0.5, { count }),
+      sketch.getValueAtQuantile(0.9, { count }),
+      sketch.getValueAtQuantile(0.95, { count }),
+      sketch.getValueAtQuantile(0.99, { count }),
       name,
       key
     );
@@ -179,7 +183,7 @@ export namespace dd {
           recorded_at: number | bigint;
           min: number;
           max: number;
-          count: number | bigint;
+          count: number;
           sum: number;
           p50: number;
           p90: number;
@@ -229,7 +233,7 @@ export namespace dd {
       .query<
         {
           sketch: Uint8Array;
-          count: number | bigint;
+          count: number;
           min: number;
           max: number;
           sum: number;
@@ -243,17 +247,26 @@ export namespace dd {
       )
       .get(name, key, interval, start);
 
+    let count = 0;
+    let sum = 0;
+    let min = Infinity;
+    let max = -Infinity;
+
     if (cached !== null) {
-      sketch = DDSketch.fromProto(cached.sketch);
-      sketch.count = Number(cached.count);
-      sketch.min = cached.min;
-      sketch.max = cached.max;
-      sketch.sum = cached.sum;
+      sketch = DDSketch.deserialize(cached.sketch);
+      count = cached.count;
+      sum = cached.sum;
+      min = cached.min;
+      max = cached.max;
     } else {
-      sketch = new DDSketch({ relativeAccuracy: 0.01 });
+      sketch = new DDSketch();
     }
 
-    sketch.accept(val);
+    sketch.add(val);
+    count += 1;
+    sum += val;
+    min = Math.min(min, val);
+    max = Math.max(max, val);
 
     db.query(
       outdent`
@@ -276,15 +289,15 @@ export namespace dd {
       interval,
       start,
       end,
-      sketch.count,
-      sketch.sum,
-      sketch.min,
-      sketch.max,
-      sketch.getValueAtQuantile(0.5),
-      sketch.getValueAtQuantile(0.9),
-      sketch.getValueAtQuantile(0.95),
-      sketch.getValueAtQuantile(0.99),
-      sketch.toProto()
+      count,
+      sum,
+      min,
+      max,
+      sketch.getValueAtQuantile(0.5, { count }),
+      sketch.getValueAtQuantile(0.9, { count }),
+      sketch.getValueAtQuantile(0.95, { count }),
+      sketch.getValueAtQuantile(0.99, { count }),
+      sketch.serialize()
     );
   };
 
@@ -305,7 +318,7 @@ export namespace dd {
         {
           start: number | bigint;
           end: number | bigint;
-          count: number | bigint;
+          count: number;
           sum: number;
           min: number;
           max: number;
@@ -332,17 +345,24 @@ export namespace dd {
       )
       .all(name, key, duration, start, end);
 
+    let count = 0;
+    let sum = 0;
+    let min = Infinity;
+    let max = -Infinity;
+
     for (const { sketch, ...row } of rows) {
-      const decoded = DDSketch.fromProto(sketch);
-      decoded.count = Number(row.count);
-      decoded.min = row.min;
-      decoded.max = row.max;
-      decoded.sum = row.sum;
+      const decoded = DDSketch.deserialize(sketch);
       if (stat === null) {
         stat = decoded;
       } else {
         stat.merge(decoded);
       }
+
+      count += row.count;
+      sum += row.sum;
+      min = Math.min(min, row.min);
+      max = Math.max(max, row.max);
+
       samples.push({
         start: Number(row.start),
         end: Number(row.end),
@@ -363,14 +383,14 @@ export namespace dd {
 
     return {
       stat: {
-        count: stat.count,
-        sum: stat.sum,
-        min: stat.min,
-        max: stat.max,
-        p50: stat.getValueAtQuantile(0.5),
-        p90: stat.getValueAtQuantile(0.9),
-        p95: stat.getValueAtQuantile(0.95),
-        p99: stat.getValueAtQuantile(0.99),
+        count,
+        sum,
+        min,
+        max,
+        p50: stat.getValueAtQuantile(0.5, { count }),
+        p90: stat.getValueAtQuantile(0.9, { count }),
+        p95: stat.getValueAtQuantile(0.95, { count }),
+        p99: stat.getValueAtQuantile(0.99, { count }),
       },
       samples,
     };

@@ -110,7 +110,7 @@ test("result", () => {
     {
       "samples": [
         {
-          "count": 3,
+          "count": 3n,
           "end": 1740830460000,
           "max": 200,
           "min": 100,
@@ -233,7 +233,7 @@ test("result", () => {
     {
       "samples": [
         {
-          "count": 1,
+          "count": 1n,
           "end": 1740830402000,
           "max": 1,
           "min": 1,
@@ -245,7 +245,7 @@ test("result", () => {
           "sum": 1,
         },
         {
-          "count": 1,
+          "count": 1n,
           "end": 1740830403000,
           "max": -1,
           "min": -1,
@@ -257,7 +257,7 @@ test("result", () => {
           "sum": -1,
         },
         {
-          "count": 1,
+          "count": 1n,
           "end": 1740830404000,
           "max": 1,
           "min": 1,

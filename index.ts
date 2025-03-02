@@ -346,7 +346,7 @@ export namespace dd {
       samples.push({
         start: Number(row.start),
         end: Number(row.end),
-        count: Number(row.count),
+        count: row.count,
         sum: row.sum,
         min: row.min,
         max: row.max,

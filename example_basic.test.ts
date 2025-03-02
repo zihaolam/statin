@@ -52,7 +52,7 @@ test("result", () => {
     {
       "samples": [
         {
-          "count": 3,
+          "count": 3n,
           "end": 1740830460000,
           "max": 200,
           "min": 100,

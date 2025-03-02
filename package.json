@@ -1,7 +1,7 @@
 {
   "name": "statin-bun",
-  "version": "0.0.4",
-  "description": "Time-series analytics and statistics and probabilistic data structures for `bun:sqlite`.",
+  "version": "0.0.5",
+  "description": "Online time-series analytics and statistics and probabilistic data structures for `bun:sqlite`.",
   "author": "Kenta Iwasaki <kenta@lithdew.net>",
   "license": "MIT",
   "homepage": "https://github.com/lithdew/statin",

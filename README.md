@@ -1,6 +1,6 @@
 # statin
 
-Time-series analytics and statistics and probabilistic data structures for `bun:sqlite`.
+Online time-series analytics and statistics and probabilistic data structures for `bun:sqlite`.
 
 \*\* This project is still a WIP! Scrub through the source code, write some unit tests, help out with documentation, or open up a Github issue if you would like to help out or have any questions!
 
@@ -21,7 +21,7 @@ These statistical sketches incrementally maintain order statistics (min, max, me
 
 ## Limitations
 
-`statin` requires that newly recorded statistics have their timestamps monotonically increasing.
+`statin` requires that newly ingested events have their timestamps monotonically increasing.
 
 To illustrate, the following code will throw an error:
 
@@ -34,7 +34,7 @@ dd.record(db, "api.response_time", "GET /users", 120, 500);
 dd.record(db, "api.response_time", "GET /users", 120, 1500);
 ```
 
-If you need the ability to record statistics at arbitrary timestamps, you need to delete and recreate all sketches greater than or equal to the timestamp you are recording.
+If you need the ability to record events with non-monotonically increasing timestamps, you need to delete and recreate all sketches whose timestamps aregreater than or equal to the timestamp you are recording.
 
 ## How it works
 

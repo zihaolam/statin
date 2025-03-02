@@ -19,7 +19,27 @@ test("basic example", () => {
   dd.record(db, "api.response_time", "GET /users", 200, START_DATE + 150);
   dd.record(db, "api.response_time", "GET /users", 140, START_DATE + 190);
 
-  // Query for percentiles across time intervals
+  // Query for the last recorded value and its statistics
+  const stat = dd.get(db, "api.response_time", "GET /users");
+
+  expect(stat).toMatchInlineSnapshot(`
+    {
+      "recordedAt": 1740830400190,
+      "stat": {
+        "count": 3n,
+        "max": 200,
+        "min": 100,
+        "p50": 141.1912010207712,
+        "p90": 141.1912010207712,
+        "p95": 141.1912010207712,
+        "p99": 141.1912010207712,
+        "sum": 440,
+      },
+      "value": 140,
+    }
+  `);
+
+  // Query for the last recorded value and its statistics across time intervals
   const result = dd.query(
     db,
     "api.response_time",
@@ -90,6 +110,50 @@ test("post like example", () => {
   like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, 1, START_DATE + 1000);
   like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, -1, START_DATE + 2000);
   like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, 1, START_DATE + 3000);
+
+  const numLikes = dd.get(
+    db,
+    "post.num_likes",
+    "cbe563cb-f0fe-476a-9342-d272b9e51325"
+  );
+  expect(numLikes).toMatchInlineSnapshot(`
+    {
+      "recordedAt": 1740830403000,
+      "stat": {
+        "count": 4n,
+        "max": 2,
+        "min": 1,
+        "p50": 0.9900000000000001,
+        "p90": 1.9936617014173448,
+        "p95": 1.9936617014173448,
+        "p99": 1.9936617014173448,
+        "sum": 6,
+      },
+      "value": 2,
+    }
+  `);
+
+  const likesPerSecond = dd.get(
+    db,
+    "post.likes_per_second",
+    "cbe563cb-f0fe-476a-9342-d272b9e51325"
+  );
+  expect(likesPerSecond).toMatchInlineSnapshot(`
+    {
+      "recordedAt": 1740830403000,
+      "stat": {
+        "count": 3n,
+        "max": 1,
+        "min": -1,
+        "p50": 0.9900000000000001,
+        "p90": 0.9900000000000001,
+        "p95": 0.9900000000000001,
+        "p99": 0.9900000000000001,
+        "sum": 1,
+      },
+      "value": 1,
+    }
+  `);
 
   const result = dd.query(
     db,

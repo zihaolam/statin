@@ -20,6 +20,15 @@ export namespace dd {
             key text not null,
             val real not null,
             recorded_at datetime not null,
+            sum real not null default 0,
+            count integer not null default 0,
+            min real not null default 0,
+            max real not null default 0,
+            p50 real not null default 0,
+            p90 real not null default 0,
+            p95 real not null default 0,
+            p99 real not null default 0,
+            sketch blob,
             primary key (name, key)
         ) without rowid;
 
@@ -56,9 +65,16 @@ export namespace dd {
         {
           val: number;
           recorded_at: number | bigint;
+          sketch: Uint8Array;
+          min: number;
+          max: number;
+          count: number | bigint;
+          sum: number;
         },
         [string, string]
-      >(`select val, recorded_at from stats where name = ? and key = ?`)
+      >(
+        `select val, recorded_at, sketch, min, max, count, sum from stats where name = ? and key = ?`
+      )
       .get(name, key);
 
     const now = timestamp;
@@ -69,12 +85,30 @@ export namespace dd {
         next = next();
       }
 
+      const sketch = new DDSketch({ relativeAccuracy: 0.01 });
+
+      sketch.accept(next);
+
       db.query(
-        `insert into stats (name, key, val, recorded_at) values (?, ?, ?, ?)`
-      ).run(name, key, next, now);
+        `insert into stats (name, key, val, recorded_at, sketch, min, max, count, sum, p50, p90, p95, p99) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        name,
+        key,
+        next,
+        now,
+        sketch.toProto(),
+        sketch.min,
+        sketch.max,
+        sketch.count,
+        sketch.sum,
+        sketch.getValueAtQuantile(0.5),
+        sketch.getValueAtQuantile(0.9),
+        sketch.getValueAtQuantile(0.95),
+        sketch.getValueAtQuantile(0.99)
+      );
 
       for (const interval of intervals) {
-        sketch(db, name, key, next, now, interval);
+        dd.sketch(db, name, key, next, now, interval);
       }
 
       return {
@@ -100,18 +134,81 @@ export namespace dd {
       throw new RangeError("Timestamp is in the past.");
     }
 
+    const sketch = DDSketch.fromProto(stat.sketch);
+    sketch.count = Number(stat.count);
+    sketch.sum = Number(stat.sum);
+    sketch.min = Number(stat.min);
+    sketch.max = Number(stat.max);
+
+    sketch.accept(next);
+
     db.query(
-      `update stats set val = ?, recorded_at = ? where name = ? and key = ?`
-    ).run(next, now, name, key);
+      `update stats set val = ?, recorded_at = ?, sketch = ?, min = ?, max = ?, count = ?, sum = ?, p50 = ?, p90 = ?, p95 = ?, p99 = ? where name = ? and key = ?`
+    ).run(
+      next,
+      now,
+      sketch.toProto(),
+      sketch.min,
+      sketch.max,
+      sketch.count,
+      sketch.sum,
+      sketch.getValueAtQuantile(0.5),
+      sketch.getValueAtQuantile(0.9),
+      sketch.getValueAtQuantile(0.95),
+      sketch.getValueAtQuantile(0.99),
+      name,
+      key
+    );
 
     for (const interval of intervals) {
-      sketch(db, name, key, next, now, interval);
+      dd.sketch(db, name, key, next, now, interval);
     }
 
     return {
       status: "updated" as const,
       value: next,
       recordedAt: stat.recorded_at,
+    };
+  };
+
+  export const get = (db: Database, name: string, key: string) => {
+    const stat = db
+      .query<
+        {
+          val: number;
+          recorded_at: number | bigint;
+          min: number;
+          max: number;
+          count: number | bigint;
+          sum: number;
+          p50: number;
+          p90: number;
+          p95: number;
+          p99: number;
+        },
+        [string, string]
+      >(
+        `select val, recorded_at, min, max, count, sum, p50, p90, p95, p99 from stats where name = ? and key = ?`
+      )
+      .get(name, key);
+
+    if (stat === null) {
+      return null;
+    }
+
+    return {
+      value: stat.val,
+      recordedAt: Number(stat.recorded_at),
+      stat: {
+        min: stat.min,
+        max: stat.max,
+        count: stat.count,
+        sum: stat.sum,
+        p50: stat.p50,
+        p90: stat.p90,
+        p95: stat.p95,
+        p99: stat.p99,
+      },
     };
   };
 

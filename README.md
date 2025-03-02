@@ -15,9 +15,9 @@ It is a pain having to deal with an OLAP database in production.
 - Unless you are using an embedded OLAP database like DuckDB, your tests will require a lot of slow, flaky scaffolding code that i.e. waits until your OLAP database is ready before any actual tests can run.
 - You need to learn a new query language, a new API, a slew of new knobs and dials to turn and adjust, and a new ecosystem around your OLAP database of choice.
 
-`statin` deals with aggregating data in the same OLTP database transaction your backend is already writing to into statistical sketches.
+`statin` deals with incrementally aggregating data in the same OLTP database transaction your backend is already writing to into order statistics (min, max, mean, median, etc.) and quantile sketches.
 
-These statistical sketches incrementally maintain order statistics (min, max, mean, median, etc.) and quantiles (p50, p90, p95, p99, etc.) of your data.
+These quantile sketches incrementally maintain quantiles (p50, p90, p95, p99, etc.) of your data as you record new events with a limited amount of memory.
 
 ## Limitations
 
@@ -94,7 +94,7 @@ test("result", () => {
     {
       "recordedAt": 1740830400190,
       "stat": {
-        "count": 3n,
+        "count": 3,
         "max": 200,
         "min": 100,
         "p50": 141.1912010207712,
@@ -110,7 +110,7 @@ test("result", () => {
     {
       "samples": [
         {
-          "count": 3n,
+          "count": 3,
           "end": 1740830460000,
           "max": 200,
           "min": 100,

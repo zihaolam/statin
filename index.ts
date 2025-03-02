@@ -296,7 +296,8 @@ export namespace dd {
     start: number,
     end: number
   ) => {
-    let agg: DDSketch | null = null;
+    let stat: DDSketch | null = null;
+
     const samples = [];
 
     const rows = db
@@ -337,10 +338,10 @@ export namespace dd {
       decoded.min = row.min;
       decoded.max = row.max;
       decoded.sum = row.sum;
-      if (agg === null) {
-        agg = decoded;
+      if (stat === null) {
+        stat = decoded;
       } else {
-        agg.merge(decoded);
+        stat.merge(decoded);
       }
       samples.push({
         start: Number(row.start),
@@ -356,20 +357,20 @@ export namespace dd {
       });
     }
 
-    if (agg === null) {
+    if (stat === null) {
       return null;
     }
 
     return {
-      agg: {
-        count: agg.count,
-        sum: agg.sum,
-        min: agg.min,
-        max: agg.max,
-        p50: agg.getValueAtQuantile(0.5),
-        p90: agg.getValueAtQuantile(0.9),
-        p95: agg.getValueAtQuantile(0.95),
-        p99: agg.getValueAtQuantile(0.99),
+      stat: {
+        count: stat.count,
+        sum: stat.sum,
+        min: stat.min,
+        max: stat.max,
+        p50: stat.getValueAtQuantile(0.5),
+        p90: stat.getValueAtQuantile(0.9),
+        p95: stat.getValueAtQuantile(0.95),
+        p99: stat.getValueAtQuantile(0.99),
       },
       samples,
     };

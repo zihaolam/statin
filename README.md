@@ -38,8 +38,9 @@ If you need the ability to record events with non-monotonically increasing times
 
 ## How it works
 
-`statin` works on top of two tables in your SQLite database:
+`statin` works on top of three tables in your SQLite database:
 
+- `events`: a table that tracks every event recorded.
 - `stats`: a table that maintains the latest value of an arbitrary statistic.
 - `stat_sketches`: a table that maintains statistical aggregates over multiple configurable time intervals using [DDSketch](https://github.com/DataDog/sketches-js).
 
@@ -79,6 +80,12 @@ dd.record(db, "api.response_time", "GET /users", 140, START_DATE + 190);
 // Query for the last recorded value and its statistics
 const stat = dd.get(db, "api.response_time", "GET /users");
 
+// Query for the last two events in descending order
+const events = dd.list(db, "api.response_time", "GET /users", {
+  limit: 2,
+  order: "desc",
+});
+
 // Query for the last recorded value and its statistics across time intervals
 const result = dd.query(
   db,
@@ -89,7 +96,7 @@ const result = dd.query(
   START_DATE + 120 * 1000 // end time
 );
 
-test("result", () => {
+test("basic example", () => {
   expect(stat).toMatchInlineSnapshot(`
     {
       "recordedAt": 1740830400190,
@@ -106,6 +113,20 @@ test("result", () => {
       "value": 140,
     }
   `);
+
+  expect(events).toMatchInlineSnapshot(`
+    [
+      {
+        "recordedAt": 1740830400190,
+        "value": 140,
+      },
+      {
+        "recordedAt": 1740830400150,
+        "value": 200,
+      },
+    ]
+  `);
+
   expect(result).toMatchInlineSnapshot(`
     {
       "samples": [

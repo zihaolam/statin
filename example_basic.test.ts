@@ -21,6 +21,12 @@ dd.record(db, "api.response_time", "GET /users", 140, START_DATE + 190);
 // Query for the last recorded value and its statistics
 const stat = dd.get(db, "api.response_time", "GET /users");
 
+// Query for the last two events in descending order
+const events = dd.list(db, "api.response_time", "GET /users", {
+  limit: 2,
+  order: "desc",
+});
+
 // Query for the last recorded value and its statistics across time intervals
 const result = dd.query(
   db,
@@ -48,6 +54,20 @@ test("basic example", () => {
       "value": 140,
     }
   `);
+
+  expect(events).toMatchInlineSnapshot(`
+    [
+      {
+        "recordedAt": 1740830400190,
+        "value": 140,
+      },
+      {
+        "recordedAt": 1740830400150,
+        "value": 200,
+      },
+    ]
+  `);
+
   expect(result).toMatchInlineSnapshot(`
     {
       "samples": [

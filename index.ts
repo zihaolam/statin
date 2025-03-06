@@ -1,6 +1,9 @@
 import { DDSketch } from "./ddsketch";
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { outdent } from "outdent";
+
+export { DDSketch };
+export { KeyMapping, LogarithmicMapping, DenseStore } from "./ddsketch";
 
 export namespace dd {
   export const DEFAULT_INTERVAL_DURATIONS: number[] = [
@@ -13,8 +16,16 @@ export namespace dd {
     365 * 24 * 60 * 60 * 1000, // year
   ];
 
-  export const init = (db: Database) => {
+  export function init(db: Database) {
     db.exec(outdent`
+        create table if not exists events (
+            name text not null,
+            key text not null,
+            recorded_at datetime not null,
+            val real not null,
+            primary key (name, key, recorded_at)
+        ) without rowid;
+
         create table if not exists stats (
             name text not null,
             key text not null,
@@ -50,16 +61,16 @@ export namespace dd {
             primary key (name, key, duration, start)
         ) without rowid;
     `);
-  };
+  }
 
-  export const record = (
+  export function record(
     db: Database,
     name: string,
     key: string,
     val: number | ((stat?: { value: number; recordedAt: number }) => number),
     timestamp: number = Date.now(),
     intervals: number[] = DEFAULT_INTERVAL_DURATIONS
-  ) => {
+  ) {
     const stat = db
       .query<
         {
@@ -84,6 +95,10 @@ export namespace dd {
       if (typeof next === "function") {
         next = next();
       }
+
+      db.query(
+        `insert into events (name, key, val, recorded_at) values (?, ?, ?, ?)`
+      ).run(name, key, next, now);
 
       const sketch = new DDSketch();
 
@@ -133,14 +148,18 @@ export namespace dd {
     stat.recorded_at = Number(stat.recorded_at);
 
     // If the timestamp is in the future, we can't record it.
-
     if (stat.recorded_at >= now) {
       throw new RangeError("Timestamp is in the past.");
     }
 
+    db.query(
+      `insert into events (name, key, val, recorded_at) values (?, ?, ?, ?)`
+    ).run(name, key, next, now);
+
     const sketch = DDSketch.deserialize(stat.sketch);
 
     sketch.add(next);
+
     const count = stat.count + 1;
     const sum = stat.sum + next;
     const min = Math.min(stat.min, next);
@@ -173,57 +192,16 @@ export namespace dd {
       value: next,
       recordedAt: stat.recorded_at,
     };
-  };
+  }
 
-  export const get = (db: Database, name: string, key: string) => {
-    const stat = db
-      .query<
-        {
-          val: number;
-          recorded_at: number | bigint;
-          min: number;
-          max: number;
-          count: number;
-          sum: number;
-          p50: number;
-          p90: number;
-          p95: number;
-          p99: number;
-        },
-        [string, string]
-      >(
-        `select val, recorded_at, min, max, count, sum, p50, p90, p95, p99 from stats where name = ? and key = ?`
-      )
-      .get(name, key);
-
-    if (stat === null) {
-      return null;
-    }
-
-    return {
-      value: stat.val,
-      recordedAt: Number(stat.recorded_at),
-      stat: {
-        min: stat.min,
-        max: stat.max,
-        count: stat.count,
-        sum: stat.sum,
-        p50: stat.p50,
-        p90: stat.p90,
-        p95: stat.p95,
-        p99: stat.p99,
-      },
-    };
-  };
-
-  export const sketch = (
+  export function sketch(
     db: Database,
     name: string,
     key: string,
     val: number,
     timestamp: number,
     interval: number
-  ) => {
+  ) {
     const start = Math.floor(timestamp / interval) * interval;
     const end = start + interval;
 
@@ -299,16 +277,94 @@ export namespace dd {
       sketch.getValueAtQuantile(0.99, { count }),
       sketch.serialize()
     );
-  };
+  }
 
-  export const query = (
+  export function list(
+    db: Database,
+    name: string,
+    key: string,
+    opts?: {
+      range?: { start: number; end: number };
+      limit?: number;
+      order?: "asc" | "desc";
+    }
+  ) {
+    let clause = "where name = ? and key = ?";
+    let params: SQLQueryBindings[] = [name, key];
+
+    if (opts?.range !== undefined) {
+      clause += " and recorded_at >= ? and recorded_at <= ?";
+      params.push(opts.range.start, opts.range.end);
+    }
+
+    clause += ` order by recorded_at ${opts?.order ?? "desc"}`;
+    clause += ` limit ${opts?.limit ?? 100}`;
+
+    const events = db
+      .query<
+        {
+          val: number;
+          recorded_at: number | bigint;
+        },
+        typeof params
+      >(`select val, recorded_at from events ${clause}`)
+      .all(...params);
+
+    return events.map((event) => ({
+      value: event.val,
+      recordedAt: Number(event.recorded_at),
+    }));
+  }
+
+  export function get(db: Database, name: string, key: string) {
+    const stat = db
+      .query<
+        {
+          val: number;
+          recorded_at: number | bigint;
+          min: number;
+          max: number;
+          count: number;
+          sum: number;
+          p50: number;
+          p90: number;
+          p95: number;
+          p99: number;
+        },
+        [string, string]
+      >(
+        `select val, recorded_at, min, max, count, sum, p50, p90, p95, p99 from stats where name = ? and key = ?`
+      )
+      .get(name, key);
+
+    if (stat === null) {
+      return null;
+    }
+
+    return {
+      value: stat.val,
+      recordedAt: Number(stat.recorded_at),
+      stat: {
+        min: stat.min,
+        max: stat.max,
+        count: stat.count,
+        sum: stat.sum,
+        p50: stat.p50,
+        p90: stat.p90,
+        p95: stat.p95,
+        p99: stat.p99,
+      },
+    };
+  }
+
+  export function query(
     db: Database,
     name: string,
     key: string,
     duration: number,
     start: number,
     end: number
-  ) => {
+  ) {
     let stat: DDSketch | null = null;
 
     const samples = [];
@@ -394,5 +450,5 @@ export namespace dd {
       },
       samples,
     };
-  };
+  }
 }

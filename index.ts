@@ -680,19 +680,6 @@ export namespace dd {
       samples,
     };
   }
-
-  export function batchQuery(
-    db: Database,
-    name: string,
-    key: Key,
-    duration: number,
-    start: number,
-    end: number,
-    facet?: {
-      name: string;
-      value: string | number;
-    },
-  ) {}
 }
 
 export interface StatinSchemaOption {

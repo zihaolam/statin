@@ -93,7 +93,7 @@ const result = dd.query(
   "GET /users",
   60 * 1000, // 1 minute interval
   START_DATE, // start time
-  START_DATE + 120 * 1000 // end time
+  START_DATE + 120 * 1000, // end time
 );
 
 test("basic example", () => {
@@ -179,7 +179,7 @@ const like = (postUuid: string, delta: number, now: number = Date.now()) => {
     "post.num_likes",
     postUuid,
     (stat) => (stat?.value ?? 0) + delta,
-    now
+    now,
   );
 
   if (result.status === "updated") {
@@ -199,13 +199,13 @@ like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, 1, START_DATE + 3000);
 const numLikes = dd.get(
   db,
   "post.num_likes",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325"
+  "cbe563cb-f0fe-476a-9342-d272b9e51325",
 );
 
 const likesPerSecond = dd.get(
   db,
   "post.likes_per_second",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325"
+  "cbe563cb-f0fe-476a-9342-d272b9e51325",
 );
 
 const result = dd.query(
@@ -214,7 +214,7 @@ const result = dd.query(
   "cbe563cb-f0fe-476a-9342-d272b9e51325",
   1000,
   START_DATE,
-  START_DATE + 4000
+  START_DATE + 4000,
 );
 
 test("result", () => {
@@ -305,6 +305,83 @@ test("result", () => {
 });
 ```
 
+### Statin with types
+
+```ts
+const stats = new Statin<{
+  "api.response_time": {
+    key: string;
+    facets: {
+      country: string;
+      device: string;
+    };
+  };
+  "post.num_likes": {
+    key: {
+      likerId: string;
+      likedId: string;
+    };
+    facets: {
+      country: string;
+      device: string;
+    };
+  };
+  "account.num_visitors": {
+    key: {
+      visitorId: string;
+      creatorId: string;
+    };
+    facets: {
+      country: string;
+      device: "IOS" | "Android";
+    };
+  };
+}>();
+
+stats.query({
+  name: "account.num_visitors",
+  key: { attr1: "123", visitorId: "456" }, // Object literal may only specify known properties, and 'attr1' does not exist in type '{ visitorId: string; creatorId: string; }'.
+  facet: { name: "device", value: 5 }, // Type 'number' is not assignable to type '"IOS" | "Android"'.
+  db,
+  start: START_DATE,
+  end: START_DATE + 120 * 1000,
+  duration: 20000,
+});
+
+stats.query({
+  db: new Database(":memory:"),
+  name: "acc.num_visitors", // Type '"acc.num_visitors"' is not assignable to type '"account.num_visitors" | "api.response_time" | "post.num_likes"'.
+  key: {
+    visitorId: "123",
+    creatorId: "456",
+  },
+  duration: 1000,
+  start: Date.now(),
+  end: Date.now() + 1000,
+  facet: {
+    name: "source_href", // Type '"source_href"' is not assignable to type '"country" | "device"'.
+    value: "reddit.com",
+  },
+});
+```
+
+### Recommended TypeScript Configuration
+
+If you’re consuming `statin` from a TypeScript project, we strongly recommend enabling these `compilerOptions` in your `tsconfig.json` to get full type‐safety and precise autocomplete on facets:
+
+```jsonc
+{
+  "compilerOptions": {
+    // turn on all strict type-checking options
+    "strict": true,
+
+    // treat foo?: T *exactly* as T (not T | undefined)
+    // this prevents passing `undefined` as a facet value
+    "exactOptionalPropertyTypes": true,
+  }
+}
+
+
 ## Roadmap
 
 Additional probabilistic data structures will be added in the future.
@@ -316,3 +393,4 @@ Additional probabilistic data structures will be added in the future.
 ## License
 
 [MIT](LICENSE)
+```

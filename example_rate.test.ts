@@ -11,18 +11,24 @@ const db = new Database(":memory:", {
 dd.init(db);
 
 const like = (postUuid: string, delta: number, now: number = Date.now()) => {
-  const result = dd.record(
+  const result = dd.record({
     db,
-    "post.num_likes",
-    postUuid,
-    (stat) => (stat?.value ?? 0) + delta,
-    now
-  );
+    name: "post.num_likes",
+    key: postUuid,
+    val: (stat) => (stat?.value ?? 0) + delta,
+    timestamp: now,
+  });
 
   if (result.status === "updated") {
     const dt = (now - result.recordedAt) / 1000;
     const dv = delta / dt;
-    dd.record(db, "post.likes_per_second", postUuid, dv, now);
+    dd.record({
+      db,
+      name: "post.likes_per_second",
+      key: postUuid,
+      val: dv,
+      timestamp: now,
+    });
   }
 };
 
@@ -36,13 +42,13 @@ like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, 1, START_DATE + 3000);
 const numLikes = dd.get(
   db,
   "post.num_likes",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325"
+  "cbe563cb-f0fe-476a-9342-d272b9e51325",
 );
 
 const likesPerSecond = dd.get(
   db,
   "post.likes_per_second",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325"
+  "cbe563cb-f0fe-476a-9342-d272b9e51325",
 );
 
 const result = dd.query(
@@ -51,92 +57,86 @@ const result = dd.query(
   "cbe563cb-f0fe-476a-9342-d272b9e51325",
   1000,
   START_DATE,
-  START_DATE + 4000
+  START_DATE + 4000,
 );
 
 test("rate of change example", () => {
-  expect(numLikes).toMatchInlineSnapshot(`
-    {
-      "recordedAt": 1740830403000,
-      "stat": {
-        "count": 4,
-        "max": 2,
-        "min": 1,
-        "p50": 0.9900000000000001,
-        "p90": 1.9936617014173448,
-        "p95": 1.9936617014173448,
-        "p99": 1.9936617014173448,
-        "sum": 6,
+  expect(numLikes).toStrictEqual({
+    recordedAt: 1740830403000,
+    stat: {
+      count: 4,
+      max: 2,
+      min: 1,
+      p50: 0.9900000000000001,
+      p90: 1.9936617014173448,
+      p95: 1.9936617014173448,
+      p99: 1.9936617014173448,
+      sum: 6,
+    },
+    value: 2,
+  });
+  expect(likesPerSecond).toStrictEqual({
+    recordedAt: 1740830403000,
+    stat: {
+      count: 3,
+      max: 1,
+      min: -1,
+      p50: 0.9900000000000001,
+      p90: 0.9900000000000001,
+      p95: 0.9900000000000001,
+      p99: 0.9900000000000001,
+      sum: 1,
+    },
+    value: 1,
+  });
+  expect(result).toStrictEqual({
+    samples: [
+      {
+        count: 1,
+        end: 1740830402000,
+        max: 1,
+        min: 1,
+        p50: 0.9900000000000001,
+        p90: 0.9900000000000001,
+        p95: 0.9900000000000001,
+        p99: 0.9900000000000001,
+        start: 1740830401000,
+        sum: 1,
       },
-      "value": 2,
-    }
-  `);
-  expect(likesPerSecond).toMatchInlineSnapshot(`
-    {
-      "recordedAt": 1740830403000,
-      "stat": {
-        "count": 3,
-        "max": 1,
-        "min": -1,
-        "p50": 0.9900000000000001,
-        "p90": 0.9900000000000001,
-        "p95": 0.9900000000000001,
-        "p99": 0.9900000000000001,
-        "sum": 1,
+      {
+        count: 1,
+        end: 1740830403000,
+        max: -1,
+        min: -1,
+        p50: -0.9900000000000001,
+        p90: -0.9900000000000001,
+        p95: -0.9900000000000001,
+        p99: -0.9900000000000001,
+        start: 1740830402000,
+        sum: -1,
       },
-      "value": 1,
-    }
-  `);
-  expect(result).toMatchInlineSnapshot(`
-    {
-      "samples": [
-        {
-          "count": 1,
-          "end": 1740830402000,
-          "max": 1,
-          "min": 1,
-          "p50": 0.9900000000000001,
-          "p90": 0.9900000000000001,
-          "p95": 0.9900000000000001,
-          "p99": 0.9900000000000001,
-          "start": 1740830401000,
-          "sum": 1,
-        },
-        {
-          "count": 1,
-          "end": 1740830403000,
-          "max": -1,
-          "min": -1,
-          "p50": -0.9900000000000001,
-          "p90": -0.9900000000000001,
-          "p95": -0.9900000000000001,
-          "p99": -0.9900000000000001,
-          "start": 1740830402000,
-          "sum": -1,
-        },
-        {
-          "count": 1,
-          "end": 1740830404000,
-          "max": 1,
-          "min": 1,
-          "p50": 0.9900000000000001,
-          "p90": 0.9900000000000001,
-          "p95": 0.9900000000000001,
-          "p99": 0.9900000000000001,
-          "start": 1740830403000,
-          "sum": 1,
-        },
-      ],
-      "stat": {
-        "count": 3,
-        "max": 1,
-        "min": -1,
-        "p50": 0.9900000000000001,
-        "p90": 0.9900000000000001,
-        "p95": 0.9900000000000001,
-        "p99": 0.9900000000000001,
-        "sum": 1,
+      {
+        count: 1,
+        end: 1740830404000,
+        max: 1,
+        min: 1,
+        p50: 0.9900000000000001,
+        p90: 0.9900000000000001,
+        p95: 0.9900000000000001,
+        p99: 0.9900000000000001,
+        start: 1740830403000,
+        sum: 1,
       },
-    }
-  `);
+    ],
+    stat: {
+      count: 3,
+      max: 1,
+      min: -1,
+      p50: 0.9900000000000001,
+      p90: 0.9900000000000001,
+      p95: 0.9900000000000001,
+      p99: 0.9900000000000001,
+      sum: 1,
+    },
+  });
 });

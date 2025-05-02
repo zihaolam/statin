@@ -1,10 +1,12 @@
 import { DDSketch } from "./ddsketch";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { outdent } from "outdent";
-import { canonicalize, type JsonRecord } from "./canonicalize";
+import { canonicalize, type NonNestedJsonRecord } from "./canonicalize";
 
 export { DDSketch };
 export { KeyMapping, LogarithmicMapping, DenseStore } from "./ddsketch";
+
+type Key = string | NonNestedJsonRecord;
 
 export namespace dd {
   export const DEFAULT_INTERVAL_DURATIONS: number[] = [
@@ -17,6 +19,10 @@ export namespace dd {
     365 * 24 * 60 * 60 * 1000, // year
   ];
 
+  function serializeKey(key: Key) {
+    return canonicalize(key);
+  }
+
   function upsertFacets({
     db,
     name,
@@ -25,8 +31,8 @@ export namespace dd {
   }: {
     db: Database;
     name: string;
-    key: string;
-    facets: Record<string, string | number>;
+    key: Key;
+    facets: NonNestedJsonRecord;
   }) {
     const entries = Object.entries(facets);
 
@@ -37,9 +43,9 @@ export namespace dd {
     let values: string[] = [];
     let params: SQLQueryBindings[] = [];
 
-    for (const [k, v] of entries) {
+    for (const [facetName, facetValue] of entries) {
       values.push("(?, ?, ?, ?, 1)");
-      params.push(name, key, k, v);
+      params.push(name, serializeKey(key), facetName, canonicalize(facetValue));
     }
 
     db.query(
@@ -107,6 +113,37 @@ export namespace dd {
     `);
   }
 
+  function generateKeyWhereClause(key: Key) {
+    if (typeof key === "string") {
+      return {
+        clause: "key = ?",
+        params: [key],
+      };
+    }
+
+    const kv = Object.entries(key);
+
+    if (kv.length === 0) {
+      return {
+        clause: "true",
+        params: [],
+      };
+    }
+
+    const clauses: string[] = [];
+    const params: SQLQueryBindings[] = [];
+
+    for (const [k, v] of kv) {
+      clauses.push(`json_extract(key, '$.${k}') = ?`);
+      params.push(canonicalize(v));
+    }
+
+    return {
+      clause: clauses.join(" and "),
+      params,
+    };
+  }
+
   function recordStats({
     db,
     name,
@@ -118,7 +155,7 @@ export namespace dd {
   }: {
     db: Database;
     name: string;
-    key: string;
+    key: Key;
     timestamp: number;
     val: number | ((stat?: { value: number; recordedAt: number }) => number);
     facet?: {
@@ -127,6 +164,7 @@ export namespace dd {
     };
     intervals: number[];
   }) {
+    const keyWhere = generateKeyWhereClause(key);
     const stat = db
       .query<
         {
@@ -142,13 +180,13 @@ export namespace dd {
       >(
         outdent`
           select val, recorded_at, facet_name, facet_value, sketch, min, max, count, sum from stats 
-          where name = ? and key = ? and facet_name = ? and facet_value = ?;`,
+          where name = ? and ${keyWhere.clause} and facet_name = ? and facet_value = ?;`,
       )
-      .get(name, key, facet?.name ?? "", facet?.value ?? "");
+      .get(name, ...keyWhere.params, facet?.name ?? "", facet?.value ?? "");
+
+    const serializedKey = serializeKey(key);
 
     const now = timestamp;
-    const { sketch: wasup, ..._stat } = stat ?? {};
-    console.info("recording stat for", { name, key, facet, retrieved: _stat });
 
     if (stat === null) {
       let next = val;
@@ -171,7 +209,7 @@ export namespace dd {
         `insert into stats (name, key, val, facet_name, facet_value, recorded_at, sketch, min, max, count, sum, p50, p90, p95, p99) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         name,
-        key,
+        serializedKey,
         next,
         facet?.name ?? "",
         facet?.value ?? "",
@@ -188,7 +226,7 @@ export namespace dd {
       );
 
       for (const interval of intervals) {
-        dd.sketch(db, name, key, next, now, interval, facet);
+        dd.sketch(db, name, serializedKey, next, now, interval, facet);
       }
 
       return {
@@ -223,7 +261,7 @@ export namespace dd {
     const max = Math.max(stat.max, next);
 
     db.query(
-      `update stats set val = ?, recorded_at = ?, sketch = ?, min = ?, max = ?, count = ?, sum = ?, p50 = ?, p90 = ?, p95 = ?, p99 = ? where name = ? and key = ? and facet_name = ? and facet_value = ?;`,
+      `update stats set val = ?, recorded_at = ?, sketch = ?, min = ?, max = ?, count = ?, sum = ?, p50 = ?, p90 = ?, p95 = ?, p99 = ? where name = ? and ${keyWhere.clause} and facet_name = ? and facet_value = ?;`,
     ).run(
       next,
       now,
@@ -237,13 +275,13 @@ export namespace dd {
       sketch.getValueAtQuantile(0.95, { count }),
       sketch.getValueAtQuantile(0.99, { count }),
       name,
-      key,
+      ...keyWhere.params,
       facet?.name ?? "",
       facet?.value ?? "",
     );
 
     for (const interval of intervals) {
-      dd.sketch(db, name, key, next, now, interval, facet);
+      dd.sketch(db, name, serializedKey, next, now, interval, facet);
     }
 
     return {
@@ -264,12 +302,14 @@ export namespace dd {
   }: {
     db: Database;
     name: string;
-    key: string;
+    key: Key;
     val: number | ((stat?: { value: number; recordedAt: number }) => number);
     timestamp?: number;
     intervals?: number[];
     facets?: Record<string, string | number>;
   }) {
+    const keyWhere = generateKeyWhereClause(key);
+    const serializedKey = serializeKey(key);
     const stat = db
       .query<
         {
@@ -281,11 +321,11 @@ export namespace dd {
           count: number;
           sum: number;
         },
-        [name: string, key: string]
+        [name: string, ...params: SQLQueryBindings[]]
       >(
-        `select val, recorded_at, sketch, min, max, count, sum from stats where name = ? and key = ?;`,
+        `select val, recorded_at, sketch, min, max, count, sum from stats where name = ? and ${keyWhere.clause};`,
       )
-      .get(name, key);
+      .get(name, ...keyWhere.params);
 
     let next = val;
     if (typeof next === "function") {
@@ -301,7 +341,7 @@ export namespace dd {
 
     db.query(
       `insert into events (name, key, val, recorded_at) values (?, ?, ?, ?)`,
-    ).run(name, key, next, timestamp);
+    ).run(name, serializedKey, next, timestamp);
 
     // upsert all facet records
     if (facets !== undefined) {
@@ -334,7 +374,7 @@ export namespace dd {
   export function sketch(
     db: Database,
     name: string,
-    key: string,
+    key: Key,
     val: number,
     timestamp: number,
     interval: number,
@@ -342,12 +382,18 @@ export namespace dd {
   ) {
     const start = Math.floor(timestamp / interval) * interval;
     const end = start + interval;
+    const keyWhere = generateKeyWhereClause(key);
 
     let clause = outdent`
-      where name = ? and key = ? and duration = ? and start = ?
+      where name = ? and ${keyWhere.clause} and duration = ? and start = ?
     `;
 
-    const params: SQLQueryBindings[] = [name, key, interval, start];
+    const params: SQLQueryBindings[] = [
+      name,
+      ...keyWhere.params,
+      interval,
+      start,
+    ];
 
     if (facet !== undefined) {
       clause += " and facet_name = ? and facet_value = ? ";
@@ -410,7 +456,7 @@ export namespace dd {
       `,
     ).run(
       name,
-      key,
+      serializeKey(key),
       facet?.name ?? "",
       facet?.value ?? "",
       interval,
@@ -431,15 +477,16 @@ export namespace dd {
   export function list(
     db: Database,
     name: string,
-    key: string,
+    key: Key,
     opts?: {
       range?: { start: number; end: number };
       limit?: number;
       order?: "asc" | "desc";
     },
   ) {
-    let clause = "where name = ? and key = ?";
-    let params: SQLQueryBindings[] = [name, key];
+    const keyWhere = generateKeyWhereClause(key);
+    let clause = `where name = ? and ${keyWhere.clause}`;
+    let params: SQLQueryBindings[] = [name, ...keyWhere.params];
 
     if (opts?.range !== undefined) {
       clause += " and recorded_at >= ? and recorded_at <= ?";
@@ -465,15 +512,21 @@ export namespace dd {
     }));
   }
 
-  export function get(
-    db: Database,
-    name: string,
-    key: string,
+  export function get({
+    db,
+    name,
+    key,
+    facet,
+  }: {
+    db: Database;
+    name: string;
+    key: Key;
     facet?: {
       name: string;
       value: string | number;
-    },
-  ) {
+    };
+  }) {
+    const keyWhere = generateKeyWhereClause(key);
     const stat = db
       .query<
         {
@@ -494,10 +547,10 @@ export namespace dd {
       >(
         outdent`
           select val, recorded_at, facet_name, facet_value, min, max, count, sum, p50, p90, p95, p99 from stats
-          where name = ? and key = ? and facet_name = ? and facet_value = ?;
+          where name = ? and ${keyWhere.clause} and facet_name = ? and facet_value = ?;
         `,
       )
-      .get(name, key, facet?.name ?? "", facet?.value ?? "");
+      .get(name, ...keyWhere.params, facet?.name ?? "", facet?.value ?? "");
 
     if (stat === null) {
       return null;
@@ -519,19 +572,28 @@ export namespace dd {
     };
   }
 
-  export function query(
-    db: Database,
-    name: string,
-    key: string,
-    duration: number,
-    start: number,
-    end: number,
+  export function query({
+    db,
+    name,
+    key,
+    duration,
+    start,
+    end,
+    facet,
+  }: {
+    db: Database;
+    name: string;
+    key: Key;
+    duration: number;
+    start: number;
+    end: number;
     facet?: {
       name: string;
       value: string | number;
-    },
-  ) {
+    };
+  }) {
     const samples = [];
+    const keyWhere = generateKeyWhereClause(key);
 
     const rows = db
       .query<
@@ -553,13 +615,13 @@ export namespace dd {
         outdent`
           select start, end, count, sum, min, max, p50, p90, p95, p99, sketch
           from stat_sketches 
-          where name = ? and key = ? and duration = ? and start >= ? and end <= ? and facet_name = ? and facet_value = ?
+          where name = ? and ${keyWhere.clause} and duration = ? and start >= ? and end <= ? and facet_name = ? and facet_value = ?
           order by start asc;
         `,
       )
       .all(
         name,
-        key,
+        ...keyWhere.params,
         duration,
         start,
         end,
@@ -618,10 +680,23 @@ export namespace dd {
       samples,
     };
   }
+
+  export function batchQuery(
+    db: Database,
+    name: string,
+    key: Key,
+    duration: number,
+    start: number,
+    end: number,
+    facet?: {
+      name: string;
+      value: string | number;
+    },
+  ) {}
 }
 
 export interface StatinSchemaOption {
-  key: string | JsonRecord;
+  key: Key;
   facets?: Record<string, string | number>;
 }
 
@@ -643,14 +718,14 @@ export class Statin<Schema extends StatinSchema = {}> {
     return dd.init(db);
   }
 
-  private serializeKey(constituents: string | JsonRecord): string {
+  private serializeKey(constituents: string | NonNestedJsonRecord): string {
     return canonicalize(constituents);
   }
 
   record<Name extends StatinName<Schema>>({
     db,
     name,
-    key: _key,
+    key,
     val,
     timestamp,
     intervals,
@@ -666,7 +741,6 @@ export class Statin<Schema extends StatinSchema = {}> {
       ? Partial<Schema[Name]["facets"]>
       : Record<string, string | number>;
   }) {
-    const key = this.serializeKey(_key);
     return dd.record({
       db,
       name,
@@ -681,7 +755,7 @@ export class Statin<Schema extends StatinSchema = {}> {
   sketch<Name extends StatinName<Schema>>({
     db,
     name,
-    key: _key,
+    key,
     val,
     timestamp,
     interval,
@@ -700,7 +774,6 @@ export class Statin<Schema extends StatinSchema = {}> {
           value: string | number;
         };
   }) {
-    const key = this.serializeKey(_key);
     return dd.sketch(
       db,
       name,
@@ -728,12 +801,12 @@ export class Statin<Schema extends StatinSchema = {}> {
           value: string | number;
         };
   }) {
-    return dd.get(
+    return dd.get({
       db,
       name,
-      this.serializeKey(key),
-      facet as { name: string; value: string | number },
-    );
+      key,
+      facet: facet as { name: string; value: string | number },
+    });
   }
 
   query<Name extends StatinName<Schema>>({
@@ -758,18 +831,18 @@ export class Statin<Schema extends StatinSchema = {}> {
           value: string | number;
         };
   }) {
-    return dd.query(
+    return dd.query({
       db,
       name,
-      this.serializeKey(key),
+      key,
       duration,
       start,
       end,
-      facet as { name: string; value: string | number },
-    );
+      facet: facet as { name: string; value: string | number },
+    });
   }
 
-  list<Name extends StatinName<Schema>>(
+  listEvents<Name extends StatinName<Schema>>(
     db: Database,
     name: Name,
     key: Name extends keyof Schema ? Schema[Name]["key"] : string,

@@ -829,7 +829,7 @@ export class Statin<Schema extends StatinSchema = {}> {
     });
   }
 
-  listEvents<Name extends StatinName<Schema>>(
+  list<Name extends StatinName<Schema>>(
     db: Database,
     name: Name,
     key: Name extends keyof Schema ? Schema[Name]["key"] : string,

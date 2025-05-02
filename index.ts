@@ -712,17 +712,22 @@ export class Statin<Schema extends StatinSchema = {}> {
     );
   }
 
-  get<Name extends keyof Schema & string>(
-    db: Database,
-    name: Name,
-    key: Name extends keyof Schema ? Schema[Name]["key"] : string,
+  get<Name extends keyof Schema & string>({
+    db,
+    name,
+    key,
+    facet,
+  }: {
+    db: Database;
+    name: Name;
+    key: Name extends keyof Schema ? Schema[Name]["key"] : string;
     facet?: Name extends keyof Schema
       ? GenerateUnions<Schema[Name]["facets"]>
       : {
           name: string;
           value: string | number;
-        },
-  ) {
+        };
+  }) {
     return dd.get(
       db,
       name,

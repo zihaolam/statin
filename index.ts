@@ -75,51 +75,39 @@ export namespace dd {
     `);
   }
 
-  function recordStats({
+  export function record({
     db,
     name,
     key,
     val,
     timestamp = Date.now(),
-    intervals,
+    intervals = DEFAULT_INTERVAL_DURATIONS,
   }: {
     db: Database;
     name: string;
     key: Key;
-    timestamp: number;
     val: number | ((stat?: { value: number; recordedAt: number }) => number);
-    intervals: number[];
+    timestamp?: number;
+    intervals?: number[];
   }) {
-    const keyWhere = generateKeyWhereClause(key);
-    const stat = db
-      .query<
-        {
-          val: number;
-          key: string;
-          recorded_at: number | bigint;
-          sketch: Uint8Array;
-          min: number;
-          max: number;
-          count: number;
-          sum: number;
-        },
-        SQLQueryBindings[]
-      >(
-        outdent`
-          select val, key, recorded_at, sketch, min, max, count, sum from stats 
-          where name = ? and ${keyWhere.clause};`,
-      )
-      .get(name, ...keyWhere.params);
-
-    const serializedKey = serializeKey(key);
+    const stat = aggregateGet({
+      db,
+      name,
+      key,
+    });
 
     const now = timestamp;
+    const serializedKey = serializeKey(key);
 
     if (stat === null) {
       let next = val;
       if (typeof next === "function") {
         next = next();
       }
+
+      db.query(
+        `insert into events (name, key, val, recorded_at) values (?, ?, ?, ?)`,
+      ).run(name, serializedKey, next, timestamp);
 
       const sketch = new DDSketch();
 
@@ -161,19 +149,23 @@ export namespace dd {
     let next = val;
     if (typeof next === "function") {
       next = next({
-        value: Number(stat.val),
-        recordedAt: Number(stat.recorded_at),
+        value: Number(stat.value),
+        recordedAt: Number(stat.recordedAt),
       });
     }
 
-    stat.recorded_at = Number(stat.recorded_at);
+    db.query(
+      `insert into events (name, key, val, recorded_at) values (?, ?, ?, ?)`,
+    ).run(name, serializedKey, next, timestamp);
+
+    stat.recordedAt = Number(stat.recordedAt);
 
     // If the timestamp is in the future, we can't record it.
-    if (stat.recorded_at >= now) {
+    if (stat.recordedAt >= now) {
       throw new RangeError("Timestamp is in the past.");
     }
 
-    const sketch = DDSketch.deserialize(stat.sketch);
+    const sketch = stat.sketch;
 
     sketch.add(next);
 
@@ -181,6 +173,8 @@ export namespace dd {
     const sum = stat.sum + next;
     const min = Math.min(stat.min, next);
     const max = Math.max(stat.max, next);
+
+    const keyWhere = generateKeyWhereClause(key);
 
     db.query(
       `update stats set val = ?, recorded_at = ?, sketch = ?, min = ?, max = ?, count = ?, sum = ?, p50 = ?, p90 = ?, p95 = ?, p99 = ? where name = ? and ${keyWhere.clause};`,
@@ -207,68 +201,8 @@ export namespace dd {
     return {
       status: "updated" as const,
       value: next,
-      recordedAt: stat.recorded_at,
+      recordedAt: stat.recordedAt,
     };
-  }
-
-  export function record({
-    db,
-    name,
-    key,
-    val,
-    timestamp = Date.now(),
-    intervals = DEFAULT_INTERVAL_DURATIONS,
-  }: {
-    db: Database;
-    name: string;
-    key: Key;
-    val: number | ((stat?: { value: number; recordedAt: number }) => number);
-    timestamp?: number;
-    intervals?: number[];
-  }) {
-    const keyWhere = generateKeyWhereClause(key);
-    const serializedKey = serializeKey(key);
-    const stat = db
-      .query<
-        {
-          val: number;
-          recorded_at: number | bigint;
-          sketch: Uint8Array;
-          min: number;
-          max: number;
-          count: number;
-          sum: number;
-        },
-        [name: string, ...params: SQLQueryBindings[]]
-      >(
-        `select val, recorded_at, sketch, min, max, count, sum from stats where name = ? and ${keyWhere.clause};`,
-      )
-      .get(name, ...keyWhere.params);
-
-    let next = val;
-    if (typeof next === "function") {
-      if (stat !== null) {
-        next = next({
-          value: Number(stat.val),
-          recordedAt: Number(stat.recorded_at),
-        });
-      } else {
-        next = next();
-      }
-    }
-
-    db.query(
-      `insert into events (name, key, val, recorded_at) values (?, ?, ?, ?)`,
-    ).run(name, serializedKey, next, timestamp);
-
-    return recordStats({
-      db,
-      name,
-      key,
-      val,
-      timestamp,
-      intervals,
-    });
   }
 
   export function sketch(
@@ -393,7 +327,7 @@ export namespace dd {
     }));
   }
 
-  export function get({
+  function aggregateGet({
     db,
     name,
     key,
@@ -403,7 +337,7 @@ export namespace dd {
     key: Key;
   }) {
     const keyWhere = generateKeyWhereClause(key);
-    const stat = db
+    const stats = db
       .query<
         {
           val: number;
@@ -416,32 +350,85 @@ export namespace dd {
           p90: number;
           p95: number;
           p99: number;
+          sketch: Uint8Array;
         },
         SQLQueryBindings[]
       >(
         outdent`
-          select val, recorded_at, min, max, count, sum, p50, p90, p95, p99 from stats
-          where name = ? and ${keyWhere.clause};
+          select val, recorded_at, min, max, count, sum, p50, p90, p95, p99, sketch from stats
+          where name = ? and ${keyWhere.clause} order by recorded_at asc;
         `,
       )
-      .get(name, ...keyWhere.params);
+      .all(name, ...keyWhere.params);
+
+    if (stats.length === 0) {
+      return null;
+    }
+
+    let sketch!: DDSketch;
+    let recordedAt!: number | bigint;
+    let value!: number;
+
+    let count = 0;
+    let sum = 0;
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (const stat of stats) {
+      const decoded = DDSketch.deserialize(stat.sketch);
+      if (sketch === undefined) {
+        sketch = decoded;
+      } else {
+        sketch.merge(decoded);
+      }
+      count += stat.count;
+      sum += stat.sum;
+      min = Math.min(min, stat.min);
+      max = Math.max(max, stat.max);
+      recordedAt = stat.recorded_at;
+      value = stat.val;
+    }
+
+    return {
+      count,
+      sum,
+      min,
+      max,
+      sketch,
+      recordedAt: Number(recordedAt),
+      value,
+    };
+  }
+
+  export function get({
+    db,
+    name,
+    key,
+  }: {
+    db: Database;
+    name: string;
+    key: Key;
+  }) {
+    const stat = aggregateGet({ db, name, key });
 
     if (stat === null) {
       return null;
     }
 
+    const { min, max, count, sum, sketch, value } = stat;
+
     return {
-      value: stat.val,
-      recordedAt: Number(stat.recorded_at),
+      value,
+      recordedAt: Number(stat.recordedAt),
       stat: {
-        min: stat.min,
-        max: stat.max,
-        count: stat.count,
-        sum: stat.sum,
-        p50: stat.p50,
-        p90: stat.p90,
-        p95: stat.p95,
-        p99: stat.p99,
+        min,
+        max,
+        count,
+        sum,
+        p50: sketch.getValueAtQuantile(0.5, { count }),
+        p90: sketch.getValueAtQuantile(0.9, { count }),
+        p95: sketch.getValueAtQuantile(0.95, { count }),
+        p99: sketch.getValueAtQuantile(0.99, { count }),
       },
     };
   }
@@ -461,7 +448,6 @@ export namespace dd {
     start: number;
     end: number;
   }) {
-    const samples = [];
     const keyWhere = generateKeyWhereClause(key);
 
     const rows = db
@@ -491,6 +477,23 @@ export namespace dd {
       )
       .all(name, duration, start, end, ...keyWhere.params);
 
+    // two different streams of stat_sketches, we want to aggregate by start and end, then merge the sketches grouped by the start and end
+    const groupedSamples = new Map<
+      string,
+      {
+        start: number;
+        end: number;
+        count: number;
+        sum: number;
+        min: number;
+        max: number;
+        p50: number;
+        p90: number;
+        p95: number;
+        p99: number;
+      }
+    >();
+
     let stat: DDSketch | null = null;
     let count = 0;
     let sum = 0;
@@ -510,18 +513,30 @@ export namespace dd {
       min = Math.min(min, row.min);
       max = Math.max(max, row.max);
 
-      samples.push({
-        start: Number(row.start),
-        end: Number(row.end),
-        count: row.count,
-        sum: row.sum,
-        min: row.min,
-        max: row.max,
-        p50: row.p50,
-        p90: row.p90,
-        p95: row.p95,
-        p99: row.p99,
-      });
+      const existing = groupedSamples.get(`${row.start}-${row.end}`);
+      if (existing === undefined) {
+        groupedSamples.set(`${row.start}-${row.end}`, {
+          start: Number(row.start),
+          end: Number(row.end),
+          count: row.count,
+          sum: row.sum,
+          min: row.min,
+          max: row.max,
+          p50: row.p50,
+          p90: row.p90,
+          p95: row.p95,
+          p99: row.p99,
+        });
+      } else {
+        existing.count += row.count;
+        existing.sum += row.sum;
+        existing.min = Math.min(existing.min, row.min);
+        existing.max = Math.max(existing.max, row.max);
+        existing.p50 = stat.getValueAtQuantile(0.5, { count });
+        existing.p90 = stat.getValueAtQuantile(0.9, { count });
+        existing.p95 = stat.getValueAtQuantile(0.95, { count });
+        existing.p99 = stat.getValueAtQuantile(0.99, { count });
+      }
     }
 
     if (stat === null) {
@@ -539,7 +554,7 @@ export namespace dd {
         p95: stat.getValueAtQuantile(0.95, { count }),
         p99: stat.getValueAtQuantile(0.99, { count }),
       },
-      samples,
+      samples: Array.from(groupedSamples.values()),
     };
   }
 }

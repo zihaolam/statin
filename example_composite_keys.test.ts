@@ -82,6 +82,12 @@ test("composite keys example", () => {
     },
   });
 
+  const stat = dd.get({
+    db,
+    name: "account.num_visitors",
+    key: { accountUuid },
+  });
+
   // Query for the last two events in descending order
   const events = dd.list(
     db,
@@ -93,7 +99,7 @@ test("composite keys example", () => {
     },
   );
 
-  // Query for the last recorded value and its statistics across time intervals
+  // Query for the last recorded value and its statistics across time intervals for country: HK
   const resultHK = dd.query({
     db,
     name: "account.num_visitors",
@@ -103,7 +109,7 @@ test("composite keys example", () => {
     end: START_DATE + 120 * 1000, // end time
   });
 
-  // Query for the last recorded value and its statistics across time intervals
+  // Query for the last recorded value and its statistics across time intervals for country: US
   const resultUS = dd.query({
     db,
     name: "account.num_visitors",
@@ -111,6 +117,16 @@ test("composite keys example", () => {
     duration: 60 * 1000, // 1 minute interval
     start: START_DATE, // start time
     end: START_DATE + 120 * 1000, // end time
+  });
+
+  // Query for cumulative statistics for num_visitors for a specific account
+  const result = dd.query({
+    db,
+    name: "account.num_visitors",
+    key: { accountUuid },
+    duration: 60 * 1000,
+    start: START_DATE,
+    end: START_DATE + 120 * 1000,
   });
 
   expect(statUS).toStrictEqual({
@@ -143,6 +159,20 @@ test("composite keys example", () => {
     value: 1,
   });
 
+  expect(stat).toStrictEqual({
+    recordedAt: 1740830400230,
+    stat: {
+      count: 4,
+      max: 1,
+      min: 1,
+      p50: 0.9900000000000001,
+      p90: 0.9900000000000001,
+      p95: 0.9900000000000001,
+      p99: 0.9900000000000001,
+      sum: 4,
+    },
+    value: 1,
+  });
   expect(events).toStrictEqual([
     {
       recordedAt: 1740830400230,
@@ -205,6 +235,33 @@ test("composite keys example", () => {
       p95: 0.9900000000000001,
       p99: 0.9900000000000001,
       sum: 3,
+    },
+  });
+
+  expect(result).toStrictEqual({
+    samples: [
+      {
+        count: 4,
+        end: 1740830460000,
+        max: 1,
+        min: 1,
+        p50: 0.9900000000000001,
+        p90: 0.9900000000000001,
+        p95: 0.9900000000000001,
+        p99: 0.9900000000000001,
+        start: 1740830400000,
+        sum: 4,
+      },
+    ],
+    stat: {
+      count: 4,
+      max: 1,
+      min: 1,
+      p50: 0.9900000000000001,
+      p90: 0.9900000000000001,
+      p95: 0.9900000000000001,
+      p99: 0.9900000000000001,
+      sum: 4,
     },
   });
 });

@@ -1,11 +1,7 @@
 import { DDSketch } from "./ddsketch";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { outdent } from "outdent";
-import {
-  canonicalize,
-  type JsonType,
-  type NonNestedJsonRecord,
-} from "./canonicalize";
+import { canonicalize, type JsonType } from "./canonicalize";
 import { generateKeyWhereClause } from "./generateKeyWhereClause";
 import { createKeyIndices } from "./createKeyIndices";
 

@@ -615,10 +615,6 @@ export namespace dd {
 
 export type StatinSchema = Record<string, Key>;
 
-type StatinName<Schema extends StatinSchema> = keyof Schema extends never
-  ? string
-  : keyof Schema & string;
-
 export const statin = <TKey extends Key>({ name }: { name: string }) => {
   return {
     record({

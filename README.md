@@ -174,18 +174,24 @@ const db = new Database(":memory:", {
 dd.init(db);
 
 const like = (postUuid: string, delta: number, now: number = Date.now()) => {
-  const result = dd.record(
+  const result = dd.record({
     db,
-    "post.num_likes",
-    postUuid,
-    (stat) => (stat?.value ?? 0) + delta,
-    now,
-  );
+    name: "post.num_likes",
+    key: { postUuid },
+    val: (stat) => (stat?.value ?? 0) + delta,
+    timestamp: now,
+  });
 
   if (result.status === "updated") {
     const dt = (now - result.recordedAt) / 1000;
     const dv = delta / dt;
-    dd.record(db, "post.likes_per_second", postUuid, dv, now);
+    dd.record({
+      db,
+      name: "post.likes_per_second",
+      key: { postUuid },
+      val: dv,
+      timestamp: now,
+    });
   }
 };
 
@@ -196,26 +202,26 @@ like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, 1, START_DATE + 1000);
 like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, -1, START_DATE + 2000);
 like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, 1, START_DATE + 3000);
 
-const numLikes = dd.get(
+const numLikes = dd.get({
   db,
-  "post.num_likes",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325",
-);
+  name: "post.num_likes",
+  key: { postUuid: "cbe563cb-f0fe-476a-9342-d272b9e51325" },
+});
 
-const likesPerSecond = dd.get(
+const likesPerSecond = dd.get({
   db,
-  "post.likes_per_second",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325",
-);
+  name: "post.likes_per_second",
+  key: { postUuid: "cbe563cb-f0fe-476a-9342-d272b9e51325" },
+});
 
-const result = dd.query(
+const result = dd.query({
   db,
-  "post.likes_per_second",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325",
-  1000,
-  START_DATE,
-  START_DATE + 4000,
-);
+  name: "post.likes_per_second",
+  key: { postUuid: "cbe563cb-f0fe-476a-9342-d272b9e51325" },
+  duration: 1000,
+  start: START_DATE,
+  end: START_DATE + 4000,
+});
 
 test("result", () => {
   expect(numLikes).toMatchInlineSnapshot(`
@@ -309,40 +315,23 @@ test("result", () => {
 
 ```ts
 const stats = new Statin<{
-  "api.response_time": {
-    key: string;
-    facets: {
-      country: string;
-      device: string;
-    };
-  };
+  "api.response_time": string;
   "post.num_likes": {
-    key: {
-      likerId: string;
-      likedId: string;
-    };
-    facets: {
-      country: string;
-      device: string;
-    };
+    likerId: string;
+    likedId: string;
   };
   "account.num_visitors": {
-    key: {
-      visitorId: string;
-      creatorId: string;
-    };
-    facets: {
-      country: string;
-      device: "IOS" | "Android";
-    };
+    visitorId: string;
+    creatorId: string;
+    country: string;
+    device: string;
   };
 }>();
 
 stats.query({
-  name: "account.num_visitors",
-  key: { attr1: "123", visitorId: "456" }, // Object literal may only specify known properties, and 'attr1' does not exist in type '{ visitorId: string; creatorId: string; }'.
-  facet: { name: "device", value: 5 }, // Type 'number' is not assignable to type '"IOS" | "Android"'.
   db,
+  name: "account.num_visitors",
+  key: { attr1: "123", visitorId: "456" }, // Object literal may only specify known properties, and 'attr1' does not exist in type '{ visitorId: string; creatorId: string; country: string; device: string }'.
   start: START_DATE,
   end: START_DATE + 120 * 1000,
   duration: 20000,
@@ -358,10 +347,6 @@ stats.query({
   duration: 1000,
   start: Date.now(),
   end: Date.now() + 1000,
-  facet: {
-    name: "source_href", // Type '"source_href"' is not assignable to type '"country" | "device"'.
-    value: "reddit.com",
-  },
 });
 ```
 

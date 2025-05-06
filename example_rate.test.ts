@@ -39,26 +39,26 @@ like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, 1, START_DATE + 1000);
 like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, -1, START_DATE + 2000);
 like(`cbe563cb-f0fe-476a-9342-d272b9e51325`, 1, START_DATE + 3000);
 
-const numLikes = dd.get(
+const numLikes = dd.get({
   db,
-  "post.num_likes",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325",
-);
+  name: "post.num_likes",
+  key: "cbe563cb-f0fe-476a-9342-d272b9e51325",
+});
 
-const likesPerSecond = dd.get(
+const likesPerSecond = dd.get({
   db,
-  "post.likes_per_second",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325",
-);
+  name: "post.likes_per_second",
+  key: "cbe563cb-f0fe-476a-9342-d272b9e51325",
+});
 
-const result = dd.query(
+const result = dd.query({
   db,
-  "post.likes_per_second",
-  "cbe563cb-f0fe-476a-9342-d272b9e51325",
-  1000,
-  START_DATE,
-  START_DATE + 4000,
-);
+  name: "post.likes_per_second",
+  key: "cbe563cb-f0fe-476a-9342-d272b9e51325",
+  duration: 1000,
+  start: START_DATE,
+  end: START_DATE + 4000,
+});
 
 test("rate of change example", () => {
   expect(numLikes).toStrictEqual({

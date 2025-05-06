@@ -13,11 +13,6 @@ export function doesIndexExist(
       AND sql LIKE ?
     LIMIT 1
   `);
-  console.info(fieldExpression);
-  const dog = db
-    .query(`select sql from sqlite_master where type='index' and tbl_name = ?`)
-    .all(table);
-  console.info({ dog });
   const result = stmt.get(table, `%${fieldExpression}%`);
   return !!result;
 }
@@ -26,7 +21,7 @@ export function createKeyIndices(db: Database, fieldsToIndex: string[]) {
   for (const table of ["stats", "stat_sketches", "events"]) {
     for (const field of fieldsToIndex) {
       const safeIndexName = field.replace(/[^a-zA-Z0-9_]/g, "_"); // to make it safe for index name, replace special characters
-      const sql = `create index if not exists idx_${safeIndexName} on ${table}(${field})`;
+      const sql = `create index if not exists idx_${table}_${safeIndexName} on ${table}(${field})`;
       db.run(sql);
     }
   }

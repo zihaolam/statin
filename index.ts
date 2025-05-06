@@ -7,6 +7,7 @@ import {
   type NonNestedJsonRecord,
 } from "./canonicalize";
 import { generateKeyWhereClause } from "./generateKeyWhereClause";
+import { createKeyIndices } from "./createKeyIndices";
 
 export { DDSketch };
 export { KeyMapping, LogarithmicMapping, DenseStore } from "./ddsketch";
@@ -90,6 +91,10 @@ export namespace dd {
     timestamp?: number;
     intervals?: number[];
   }) {
+    const keyWhere = generateKeyWhereClause(key);
+
+    createKeyIndices(db, keyWhere.fieldsToIndex);
+
     const stat = aggregateGet({
       db,
       name,
@@ -173,8 +178,6 @@ export namespace dd {
     const sum = stat.sum + next;
     const min = Math.min(stat.min, next);
     const max = Math.max(stat.max, next);
-
-    const keyWhere = generateKeyWhereClause(key);
 
     db.query(
       `update stats set val = ?, recorded_at = ?, sketch = ?, min = ?, max = ?, count = ?, sum = ?, p50 = ?, p90 = ?, p95 = ?, p99 = ? where name = ? and ${keyWhere.clause};`,

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { dd, Statin } from ".";
+import { dd } from ".";
 import { test, expect } from "bun:test";
 
 const START_DATE = new Date("2025-03-01 12:00:00").getTime();

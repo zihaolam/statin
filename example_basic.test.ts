@@ -36,6 +36,44 @@ dd.record({
   timestamp: START_DATE + 190,
 });
 
+// Example for recording number of views
+for (let i = 0; i < 5; i++) {
+  dd.record({
+    db,
+    name: "post.num_views",
+    key: {
+      postId: "1",
+      viewerId: "bob",
+    },
+    val: 1,
+    timestamp: START_DATE + i,
+  });
+}
+
+for (let i = 0; i < 10; i++)
+  dd.record({
+    db,
+    name: "post.num_views",
+    key: {
+      postId: "1",
+      viewerId: "alice",
+    },
+    val: 1,
+    timestamp: START_DATE + i,
+  });
+
+for (let i = 0; i < 10; i++)
+  dd.record({
+    db,
+    name: "post.num_views",
+    key: {
+      postId: "1",
+      viewerId: "alice",
+    },
+    val: 1,
+    timestamp: START_DATE + 80 * 1000 + i,
+  });
+
 // Query for the last recorded value and its statistics
 const stat = dd.get({ db, name: "api.response_time", key: "GET /users" });
 
@@ -53,6 +91,21 @@ const result = dd.query({
   duration: 60 * 1000, // 1 minute interval
   start: START_DATE, // start time
   end: START_DATE + 120 * 1000, // end time
+});
+
+const topPosts = dd.find({
+  db,
+  name: "post.num_views",
+  key: {
+    postId: "1",
+  },
+  start: START_DATE,
+  end: START_DATE + 120 * 1000,
+  duration: 60 * 1000,
+  opts: {
+    order: "sum desc",
+    limit: 10,
+  },
 });
 
 test("basic example", () => {
@@ -108,4 +161,21 @@ test("basic example", () => {
       sum: 440,
     },
   });
+
+  expect(topPosts).toStrictEqual([
+    {
+      key: { postId: "1", viewerId: "alice" },
+      count: 20,
+      sum: 20,
+      min: 1,
+      max: 1,
+    },
+    {
+      key: { postId: "1", viewerId: "bob" },
+      count: 5,
+      sum: 5,
+      min: 1,
+      max: 1,
+    },
+  ]);
 });

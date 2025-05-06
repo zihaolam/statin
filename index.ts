@@ -1,7 +1,7 @@
 import { DDSketch } from "./ddsketch";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { outdent } from "outdent";
-import { canonicalize, type JsonType } from "./canonicalize";
+import { canonicalize, type JsonRecord, type JsonType } from "./canonicalize";
 import { generateKeyWhereClause } from "./generateKeyWhereClause";
 import { createKeyIndices } from "./createKeyIndices";
 
@@ -9,6 +9,11 @@ export { DDSketch };
 export { KeyMapping, LogarithmicMapping, DenseStore } from "./ddsketch";
 
 type Key = JsonType;
+type PartialKey<TKey extends Key> = TKey extends infer T
+  ? T extends JsonRecord
+    ? Partial<T>
+    : T
+  : never;
 
 export namespace dd {
   export const DEFAULT_INTERVAL_DURATIONS: number[] = [
@@ -625,7 +630,7 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
       intervals,
     }: {
       db: Database;
-      key: TKey;
+      key: PartialKey<TKey>;
       val: number | ((stat?: { value: number; recordedAt: number }) => number);
       timestamp?: number;
       intervals?: number[];
@@ -633,7 +638,7 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
       return dd.record({
         db,
         name,
-        key,
+        key: key as Key,
         val,
         timestamp,
         intervals,
@@ -647,18 +652,18 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
       interval,
     }: {
       db: Database;
-      key: TKey;
+      key: PartialKey<TKey>;
       val: number;
       timestamp: number;
       interval: number;
     }) {
-      return dd.sketch(db, name, key, val, timestamp, interval);
+      return dd.sketch(db, name, key as Key, val, timestamp, interval);
     },
-    get({ db, key }: { db: Database; key: TKey }) {
+    get({ db, key }: { db: Database; key: PartialKey<TKey> }) {
       return dd.get({
         db,
         name,
-        key,
+        key: key as Key,
       });
     },
     query({
@@ -669,7 +674,7 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
       end,
     }: {
       db: Database;
-      key: Key;
+      key: PartialKey<TKey>;
       duration: number;
       start: number;
       end: number;
@@ -677,7 +682,7 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
       return dd.query({
         db,
         name,
-        key,
+        key: key as Key,
         duration,
         start,
         end,
@@ -685,18 +690,18 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
     },
     list(
       db: Database,
-      key: TKey,
+      key: PartialKey<TKey>,
       opts?: {
         range?: { start: number; end: number };
         limit?: number;
         order?: "asc" | "desc";
       },
     ) {
-      return dd.list(db, name, key, opts);
+      return dd.list(db, name, key as Key, opts);
     },
     find(
       db: Database,
-      key: TKey,
+      key: PartialKey<TKey>,
       start: number,
       end: number,
       duration: number,
@@ -707,7 +712,7 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
     ) {
       return dd.find<TKey>({
         db,
-        key,
+        key: key as Key,
         name,
         start,
         end,

@@ -556,6 +556,61 @@ export namespace dd {
       samples: Array.from(groupedSamples.values()),
     };
   }
+
+  export function find<TKey extends Key = Key>({
+    db,
+    key,
+    name,
+    opts,
+    start,
+    end,
+    duration,
+  }: {
+    db: Database;
+    name: string;
+    key: Key;
+    start: number;
+    end: number;
+    duration: number;
+    opts?: {
+      limit?: number;
+      order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
+    };
+  }) {
+    const keyWhere = generateKeyWhereClause(key);
+    let clause = `where name = ? and ${keyWhere.clause}`;
+    let params: SQLQueryBindings[] = [name, ...keyWhere.params];
+
+    clause += " and start >= ? and end <= ? and duration = ?";
+    params.push(start, end, duration);
+
+    clause += " group by key";
+    clause += " order by ?";
+    clause += " limit ?";
+    params.push(opts?.order ?? "sum desc", opts?.limit ?? 20);
+
+    const stats = db
+      .query<
+        {
+          key: string;
+          count: number;
+          sum: number;
+          min: number;
+          max: number;
+        },
+        SQLQueryBindings[]
+      >(
+        outdent`
+            select key, sum(count) as count, sum(sum) as sum, min(min) as min, max(max) as max from stat_sketches ${clause};
+        `,
+      )
+      .all(...params);
+
+    return stats.map((stat) => ({
+      ...stat,
+      key: JSON.parse(stat.key) as Key,
+    }));
+  }
 }
 
 export type StatinSchema = Record<string, Key>;
@@ -564,105 +619,105 @@ type StatinName<Schema extends StatinSchema> = keyof Schema extends never
   ? string
   : keyof Schema & string;
 
-export class Statin<Schema extends StatinSchema = {}> {
-  init(db: Database) {
-    return dd.init(db);
-  }
-
-  record<Name extends StatinName<Schema>>({
-    db,
-    name,
-    key,
-    val,
-    timestamp,
-    intervals,
-  }: {
-    db: Database;
-    name: Name;
-    key: Name extends keyof Schema ? Schema[Name] : string;
-    val: number | ((stat?: { value: number; recordedAt: number }) => number);
-    timestamp?: number;
-    intervals?: number[];
-  }) {
-    return dd.record({
+export const statin = <TKey extends Key>({ name }: { name: string }) => {
+  return {
+    record({
       db,
-      name,
       key,
       val,
       timestamp,
       intervals,
-    });
-  }
-
-  sketch<Name extends StatinName<Schema>>({
-    db,
-    name,
-    key,
-    val,
-    timestamp,
-    interval,
-  }: {
-    db: Database;
-    name: Name;
-    key: Name extends keyof Schema ? Schema[Name] : string;
-    val: number;
-    timestamp: number;
-    interval: number;
-  }) {
-    return dd.sketch(db, name, key, val, timestamp, interval);
-  }
-
-  get<Name extends keyof Schema & string>({
-    db,
-    name,
-    key,
-  }: {
-    db: Database;
-    name: Name;
-    key: Name extends keyof Schema ? Schema[Name] : string;
-  }) {
-    return dd.get({
+    }: {
+      db: Database;
+      key: TKey;
+      val: number | ((stat?: { value: number; recordedAt: number }) => number);
+      timestamp?: number;
+      intervals?: number[];
+    }) {
+      return dd.record({
+        db,
+        name,
+        key,
+        val,
+        timestamp,
+        intervals,
+      });
+    },
+    sketch({
       db,
-      name,
       key,
-    });
-  }
-
-  query<Name extends StatinName<Schema>>({
-    db,
-    name,
-    key,
-    duration,
-    start,
-    end,
-  }: {
-    db: Database;
-    name: Name;
-    key: Name extends keyof Schema ? Schema[Name] : string;
-    duration: number;
-    start: number;
-    end: number;
-  }) {
-    return dd.query({
+      val,
+      timestamp,
+      interval,
+    }: {
+      db: Database;
+      key: TKey;
+      val: number;
+      timestamp: number;
+      interval: number;
+    }) {
+      return dd.sketch(db, name, key, val, timestamp, interval);
+    },
+    get({ db, key }: { db: Database; key: TKey }) {
+      return dd.get({
+        db,
+        name,
+        key,
+      });
+    },
+    query({
       db,
-      name,
       key,
       duration,
       start,
       end,
-    });
-  }
-
-  list<Name extends StatinName<Schema>>(
-    db: Database,
-    name: Name,
-    key: Name extends keyof Schema ? Schema[Name] : string,
-    opts?: {
-      range?: { start: number; end: number };
-      limit?: number;
-      order?: "asc" | "desc";
+    }: {
+      db: Database;
+      key: Key;
+      duration: number;
+      start: number;
+      end: number;
+    }) {
+      return dd.query({
+        db,
+        name,
+        key,
+        duration,
+        start,
+        end,
+      });
     },
-  ) {
-    return dd.list(db, name, key, opts);
-  }
-}
+    list(
+      db: Database,
+      key: TKey,
+      opts?: {
+        range?: { start: number; end: number };
+        limit?: number;
+        order?: "asc" | "desc";
+      },
+    ) {
+      return dd.list(db, name, key, opts);
+    },
+    find(
+      db: Database,
+      key: TKey,
+      start: number,
+      end: number,
+      duration: number,
+      opts?: {
+        limit?: number;
+        order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
+      },
+    ) {
+      return dd.find<TKey>({
+        db,
+        key,
+        name,
+        start,
+        end,
+        duration,
+        opts,
+      });
+    },
+  };
+};

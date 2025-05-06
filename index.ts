@@ -613,7 +613,7 @@ export namespace dd {
 
     return stats.map((stat) => ({
       ...stat,
-      key: JSON.parse(stat.key) as Key,
+      key: JSON.parse(stat.key) as TKey,
     }));
   }
 }
@@ -699,17 +699,23 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
     ) {
       return dd.list(db, name, key as Key, opts);
     },
-    find(
-      db: Database,
-      key: PartialKey<TKey>,
-      start: number,
-      end: number,
-      duration: number,
-      opts?: {
-        limit?: number;
-        order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
-      },
-    ) {
+    find({
+      db,
+      key,
+      start,
+      end,
+      duration,
+      limit,
+      order,
+    }: {
+      db: Database;
+      key: PartialKey<TKey>;
+      start: number;
+      end: number;
+      duration: number;
+      limit?: number;
+      order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
+    }) {
       return dd.find<TKey>({
         db,
         key: key as Key,
@@ -717,7 +723,10 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
         start,
         end,
         duration,
-        opts,
+        opts: {
+          limit,
+          order,
+        },
       });
     },
   };

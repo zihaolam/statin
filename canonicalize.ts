@@ -9,10 +9,6 @@ export type JsonType =
   | JsonRecord
   | Array<JsonType>;
 
-export type NonNestedJsonRecord = {
-  [key: string]: Exclude<JsonType, JsonRecord | Array<JsonType>>;
-};
-
 export function canonicalize(object: JsonType): string {
   if (typeof object === "number" && isNaN(object)) {
     throw new Error("NaN is not allowed");

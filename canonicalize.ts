@@ -6,7 +6,6 @@ export type JsonType =
   | number
   | boolean
   | null
-  | undefined
   | JsonRecord
   | Array<JsonType>;
 

@@ -1,12 +1,17 @@
 import { DDSketch } from "./ddsketch";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { outdent } from "outdent";
-import { canonicalize, type NonNestedJsonRecord } from "./canonicalize";
+import {
+  canonicalize,
+  type JsonType,
+  type NonNestedJsonRecord,
+} from "./canonicalize";
+import { generateKeyWhereClause } from "./generateKeyWhereClause";
 
 export { DDSketch };
 export { KeyMapping, LogarithmicMapping, DenseStore } from "./ddsketch";
 
-type Key = string | NonNestedJsonRecord;
+type Key = JsonType;
 
 export namespace dd {
   export const DEFAULT_INTERVAL_DURATIONS: number[] = [
@@ -23,36 +28,6 @@ export namespace dd {
     return canonicalize(key);
   }
 
-  function upsertFacets({
-    db,
-    name,
-    key,
-    facets,
-  }: {
-    db: Database;
-    name: string;
-    key: Key;
-    facets: NonNestedJsonRecord;
-  }) {
-    const entries = Object.entries(facets);
-
-    if (entries.length === 0) {
-      return;
-    }
-
-    let values: string[] = [];
-    let params: SQLQueryBindings[] = [];
-
-    for (const [facetName, facetValue] of entries) {
-      values.push("(?, ?, ?, ?, 1)");
-      params.push(name, serializeKey(key), facetName, canonicalize(facetValue));
-    }
-
-    db.query(
-      `insert into facets (name, key, facet_name, facet_value, count) values ${values} on conflict do update set count = count + 1`,
-    ).run(...params);
-  }
-
   export function init(db: Database) {
     db.exec(outdent`
         create table if not exists events (
@@ -63,21 +38,10 @@ export namespace dd {
             primary key (name, key, recorded_at)
         ) without rowid;
 
-        create table if not exists facets (
-            name text not null,
-            key text not null,
-            facet_name text not null,
-            facet_value text not null,
-            count integer not null default 1,
-            primary key (name, key, facet_name, facet_value)
-        ) without rowid;
-
         create table if not exists stats (
             name text not null,
             key text not null,
             val real not null,
-            facet_name text not null,
-            facet_value text not null,
             recorded_at datetime not null,
             sum real not null default 0,
             count real not null default 0,
@@ -88,14 +52,12 @@ export namespace dd {
             p95 real not null default 0,
             p99 real not null default 0,
             sketch blob,
-            primary key (name, key, facet_name, facet_value)
+            primary key (name, key)
         ) without rowid;
 
         create table if not exists stat_sketches (
             name text not null,
             key text not null,
-            facet_name text not null,
-            facet_value text not null,
             duration integer not null,
             start datetime not null,
             end datetime not null,
@@ -108,40 +70,9 @@ export namespace dd {
             p95 real not null default 0,
             p99 real not null default 0,
             sketch blob,
-            primary key (name, key, facet_name, facet_value, duration, start)
+            primary key (name, key, duration, start)
         ) without rowid;
     `);
-  }
-
-  function generateKeyWhereClause(key: Key) {
-    if (typeof key === "string") {
-      return {
-        clause: "key = ?",
-        params: [key],
-      };
-    }
-
-    const kv = Object.entries(key);
-
-    if (kv.length === 0) {
-      return {
-        clause: "true",
-        params: [],
-      };
-    }
-
-    const clauses: string[] = [];
-    const params: SQLQueryBindings[] = [];
-
-    for (const [k, v] of kv) {
-      clauses.push(`json_extract(key, '$.${k}') = ?`);
-      params.push(canonicalize(v));
-    }
-
-    return {
-      clause: clauses.join(" and "),
-      params,
-    };
   }
 
   function recordStats({
@@ -149,7 +80,6 @@ export namespace dd {
     name,
     key,
     val,
-    facet,
     timestamp = Date.now(),
     intervals,
   }: {
@@ -158,10 +88,6 @@ export namespace dd {
     key: Key;
     timestamp: number;
     val: number | ((stat?: { value: number; recordedAt: number }) => number);
-    facet?: {
-      name: string;
-      value: string | number;
-    };
     intervals: number[];
   }) {
     const keyWhere = generateKeyWhereClause(key);
@@ -169,6 +95,7 @@ export namespace dd {
       .query<
         {
           val: number;
+          key: string;
           recorded_at: number | bigint;
           sketch: Uint8Array;
           min: number;
@@ -179,10 +106,10 @@ export namespace dd {
         SQLQueryBindings[]
       >(
         outdent`
-          select val, recorded_at, facet_name, facet_value, sketch, min, max, count, sum from stats 
-          where name = ? and ${keyWhere.clause} and facet_name = ? and facet_value = ?;`,
+          select val, key, recorded_at, sketch, min, max, count, sum from stats 
+          where name = ? and ${keyWhere.clause};`,
       )
-      .get(name, ...keyWhere.params, facet?.name ?? "", facet?.value ?? "");
+      .get(name, ...keyWhere.params);
 
     const serializedKey = serializeKey(key);
 
@@ -202,17 +129,12 @@ export namespace dd {
       const min = next;
       const max = next;
 
-      if (facet !== undefined) {
-      }
-
       db.query(
-        `insert into stats (name, key, val, facet_name, facet_value, recorded_at, sketch, min, max, count, sum, p50, p90, p95, p99) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into stats (name, key, val, recorded_at, sketch, min, max, count, sum, p50, p90, p95, p99) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         name,
         serializedKey,
         next,
-        facet?.name ?? "",
-        facet?.value ?? "",
         now,
         sketch.serialize(),
         min,
@@ -226,7 +148,7 @@ export namespace dd {
       );
 
       for (const interval of intervals) {
-        dd.sketch(db, name, serializedKey, next, now, interval, facet);
+        dd.sketch(db, name, key, next, now, interval);
       }
 
       return {
@@ -261,7 +183,7 @@ export namespace dd {
     const max = Math.max(stat.max, next);
 
     db.query(
-      `update stats set val = ?, recorded_at = ?, sketch = ?, min = ?, max = ?, count = ?, sum = ?, p50 = ?, p90 = ?, p95 = ?, p99 = ? where name = ? and ${keyWhere.clause} and facet_name = ? and facet_value = ?;`,
+      `update stats set val = ?, recorded_at = ?, sketch = ?, min = ?, max = ?, count = ?, sum = ?, p50 = ?, p90 = ?, p95 = ?, p99 = ? where name = ? and ${keyWhere.clause};`,
     ).run(
       next,
       now,
@@ -276,12 +198,10 @@ export namespace dd {
       sketch.getValueAtQuantile(0.99, { count }),
       name,
       ...keyWhere.params,
-      facet?.name ?? "",
-      facet?.value ?? "",
     );
 
     for (const interval of intervals) {
-      dd.sketch(db, name, serializedKey, next, now, interval, facet);
+      dd.sketch(db, name, key, next, now, interval);
     }
 
     return {
@@ -298,7 +218,6 @@ export namespace dd {
     val,
     timestamp = Date.now(),
     intervals = DEFAULT_INTERVAL_DURATIONS,
-    facets,
   }: {
     db: Database;
     name: string;
@@ -306,7 +225,6 @@ export namespace dd {
     val: number | ((stat?: { value: number; recordedAt: number }) => number);
     timestamp?: number;
     intervals?: number[];
-    facets?: Record<string, string | number>;
   }) {
     const keyWhere = generateKeyWhereClause(key);
     const serializedKey = serializeKey(key);
@@ -343,24 +261,6 @@ export namespace dd {
       `insert into events (name, key, val, recorded_at) values (?, ?, ?, ?)`,
     ).run(name, serializedKey, next, timestamp);
 
-    // upsert all facet records
-    if (facets !== undefined) {
-      upsertFacets({ db, name, key, facets });
-    }
-
-    // record stats for each facet
-    for (const [facetName, facetValue] of Object.entries(facets ?? {})) {
-      recordStats({
-        db,
-        name,
-        key,
-        val,
-        timestamp,
-        intervals,
-        facet: { name: facetName, value: facetValue },
-      });
-    }
-
     return recordStats({
       db,
       name,
@@ -378,27 +278,10 @@ export namespace dd {
     val: number,
     timestamp: number,
     interval: number,
-    facet?: { name: string; value: string | number },
   ) {
     const start = Math.floor(timestamp / interval) * interval;
     const end = start + interval;
     const keyWhere = generateKeyWhereClause(key);
-
-    let clause = outdent`
-      where name = ? and ${keyWhere.clause} and duration = ? and start = ?
-    `;
-
-    const params: SQLQueryBindings[] = [
-      name,
-      ...keyWhere.params,
-      interval,
-      start,
-    ];
-
-    if (facet !== undefined) {
-      clause += " and facet_name = ? and facet_value = ? ";
-      params.push(facet.name, facet.value);
-    }
 
     const cached = db
       .query<
@@ -412,10 +295,10 @@ export namespace dd {
         SQLQueryBindings[]
       >(
         outdent`
-            select sketch, min, max, count, sum from stat_sketches ${clause};
+            select sketch, min, max, count, sum from stat_sketches where name = ? and duration = ? and start = ? and ${keyWhere.clause};
         `,
       )
-      .get(...params);
+      .get(name, interval, start, ...keyWhere.params);
 
     let sketch: DDSketch;
     let count = 0;
@@ -441,9 +324,9 @@ export namespace dd {
 
     db.query(
       outdent`
-        insert into stat_sketches (name, key, facet_name, facet_value, duration, start, end, count, sum, min, max, p50, p90, p95, p99, sketch)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        on conflict (name, key, facet_name, facet_value, duration, start) do update set
+        insert into stat_sketches (name, key, duration, start, end, count, sum, min, max, p50, p90, p95, p99, sketch)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        on conflict (name, key, duration, start) do update set
         count = excluded.count,
         sum = excluded.sum,
         min = excluded.min,
@@ -457,8 +340,6 @@ export namespace dd {
     ).run(
       name,
       serializeKey(key),
-      facet?.name ?? "",
-      facet?.value ?? "",
       interval,
       start,
       end,
@@ -502,7 +383,7 @@ export namespace dd {
           val: number;
           recorded_at: number | bigint;
         },
-        typeof params
+        SQLQueryBindings[]
       >(`select val, recorded_at from events ${clause}`)
       .all(...params);
 
@@ -516,15 +397,10 @@ export namespace dd {
     db,
     name,
     key,
-    facet,
   }: {
     db: Database;
     name: string;
     key: Key;
-    facet?: {
-      name: string;
-      value: string | number;
-    };
   }) {
     const keyWhere = generateKeyWhereClause(key);
     const stat = db
@@ -532,8 +408,6 @@ export namespace dd {
         {
           val: number;
           recorded_at: number | bigint;
-          facet_name: string;
-          facet_value: string;
           min: number;
           max: number;
           count: number;
@@ -546,11 +420,11 @@ export namespace dd {
         SQLQueryBindings[]
       >(
         outdent`
-          select val, recorded_at, facet_name, facet_value, min, max, count, sum, p50, p90, p95, p99 from stats
-          where name = ? and ${keyWhere.clause} and facet_name = ? and facet_value = ?;
+          select val, recorded_at, min, max, count, sum, p50, p90, p95, p99 from stats
+          where name = ? and ${keyWhere.clause};
         `,
       )
-      .get(name, ...keyWhere.params, facet?.name ?? "", facet?.value ?? "");
+      .get(name, ...keyWhere.params);
 
     if (stat === null) {
       return null;
@@ -579,7 +453,6 @@ export namespace dd {
     duration,
     start,
     end,
-    facet,
   }: {
     db: Database;
     name: string;
@@ -587,10 +460,6 @@ export namespace dd {
     duration: number;
     start: number;
     end: number;
-    facet?: {
-      name: string;
-      value: string | number;
-    };
   }) {
     const samples = [];
     const keyWhere = generateKeyWhereClause(key);
@@ -600,6 +469,7 @@ export namespace dd {
         {
           start: number | bigint;
           end: number | bigint;
+          key: string;
           count: number;
           sum: number;
           min: number;
@@ -613,21 +483,13 @@ export namespace dd {
         SQLQueryBindings[]
       >(
         outdent`
-          select start, end, count, sum, min, max, p50, p90, p95, p99, sketch
+          select start, end, key, count, sum, min, max, p50, p90, p95, p99, sketch
           from stat_sketches 
-          where name = ? and ${keyWhere.clause} and duration = ? and start >= ? and end <= ? and facet_name = ? and facet_value = ?
+          where name = ? and duration = ? and start >= ? and end <= ? and ${keyWhere.clause}
           order by start asc;
         `,
       )
-      .all(
-        name,
-        ...keyWhere.params,
-        duration,
-        start,
-        end,
-        facet?.name ?? "",
-        facet?.value ?? "",
-      );
+      .all(name, duration, start, end, ...keyWhere.params);
 
     let stat: DDSketch | null = null;
     let count = 0;
@@ -682,31 +544,15 @@ export namespace dd {
   }
 }
 
-export interface StatinSchemaOption {
-  key: Key;
-  facets?: Record<string, string | number>;
-}
-
-export type StatinSchema = Record<string, StatinSchemaOption>;
+export type StatinSchema = Record<string, Key>;
 
 type StatinName<Schema extends StatinSchema> = keyof Schema extends never
   ? string
   : keyof Schema & string;
 
-type GenerateUnions<Object> = {
-  [K in keyof Object]: {
-    name: K;
-    value: Object[K];
-  };
-}[keyof Object];
-
 export class Statin<Schema extends StatinSchema = {}> {
   init(db: Database) {
     return dd.init(db);
-  }
-
-  private serializeKey(constituents: string | NonNestedJsonRecord): string {
-    return canonicalize(constituents);
   }
 
   record<Name extends StatinName<Schema>>({
@@ -716,17 +562,13 @@ export class Statin<Schema extends StatinSchema = {}> {
     val,
     timestamp,
     intervals,
-    facets,
   }: {
     db: Database;
     name: Name;
-    key: Name extends keyof Schema ? Schema[Name]["key"] : string;
+    key: Name extends keyof Schema ? Schema[Name] : string;
     val: number | ((stat?: { value: number; recordedAt: number }) => number);
     timestamp?: number;
     intervals?: number[];
-    facets?: Name extends keyof Schema
-      ? Partial<Schema[Name]["facets"]>
-      : Record<string, string | number>;
   }) {
     return dd.record({
       db,
@@ -735,7 +577,6 @@ export class Statin<Schema extends StatinSchema = {}> {
       val,
       timestamp,
       intervals,
-      facets: facets as Schema[Name]["facets"],
     });
   }
 
@@ -746,53 +587,30 @@ export class Statin<Schema extends StatinSchema = {}> {
     val,
     timestamp,
     interval,
-    facet,
   }: {
     db: Database;
     name: Name;
-    key: Name extends keyof Schema ? Schema[Name]["key"] : string;
+    key: Name extends keyof Schema ? Schema[Name] : string;
     val: number;
     timestamp: number;
     interval: number;
-    facet?: Name extends keyof Schema
-      ? GenerateUnions<Schema[Name]["facets"]>
-      : {
-          name: string;
-          value: string | number;
-        };
   }) {
-    return dd.sketch(
-      db,
-      name,
-      key,
-      val,
-      timestamp,
-      interval,
-      facet as { name: string; value: string | number },
-    );
+    return dd.sketch(db, name, key, val, timestamp, interval);
   }
 
   get<Name extends keyof Schema & string>({
     db,
     name,
     key,
-    facet,
   }: {
     db: Database;
     name: Name;
-    key: Name extends keyof Schema ? Schema[Name]["key"] : string;
-    facet?: Name extends keyof Schema
-      ? GenerateUnions<Schema[Name]["facets"]>
-      : {
-          name: string;
-          value: string | number;
-        };
+    key: Name extends keyof Schema ? Schema[Name] : string;
   }) {
     return dd.get({
       db,
       name,
       key,
-      facet: facet as { name: string; value: string | number },
     });
   }
 
@@ -803,20 +621,13 @@ export class Statin<Schema extends StatinSchema = {}> {
     duration,
     start,
     end,
-    facet,
   }: {
     db: Database;
     name: Name;
-    key: Name extends keyof Schema ? Schema[Name]["key"] : string;
+    key: Name extends keyof Schema ? Schema[Name] : string;
     duration: number;
     start: number;
     end: number;
-    facet?: Name extends keyof Schema
-      ? GenerateUnions<Schema[Name]["facets"]>
-      : {
-          name: string;
-          value: string | number;
-        };
   }) {
     return dd.query({
       db,
@@ -825,20 +636,19 @@ export class Statin<Schema extends StatinSchema = {}> {
       duration,
       start,
       end,
-      facet: facet as { name: string; value: string | number },
     });
   }
 
   list<Name extends StatinName<Schema>>(
     db: Database,
     name: Name,
-    key: Name extends keyof Schema ? Schema[Name]["key"] : string,
+    key: Name extends keyof Schema ? Schema[Name] : string,
     opts?: {
       range?: { start: number; end: number };
       limit?: number;
       order?: "asc" | "desc";
     },
   ) {
-    return dd.list(db, name, this.serializeKey(key), opts);
+    return dd.list(db, name, key, opts);
   }
 }

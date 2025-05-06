@@ -37,7 +37,7 @@ dd.record({
 });
 
 // Query for the last recorded value and its statistics
-const stat = dd.get(db, "api.response_time", "GET /users");
+const stat = dd.get({ db, name: "api.response_time", key: "GET /users" });
 
 // Query for the last two events in descending order
 const events = dd.list(db, "api.response_time", "GET /users", {
@@ -46,14 +46,14 @@ const events = dd.list(db, "api.response_time", "GET /users", {
 });
 
 // Query for the last recorded value and its statistics across time intervals
-const result = dd.query(
+const result = dd.query({
   db,
-  "api.response_time",
-  "GET /users",
-  60 * 1000, // 1 minute interval
-  START_DATE, // start time
-  START_DATE + 120 * 1000, // end time
-);
+  name: "api.response_time",
+  key: "GET /users",
+  duration: 60 * 1000, // 1 minute interval
+  start: START_DATE, // start time
+  end: START_DATE + 120 * 1000, // end time
+});
 
 test("basic example", () => {
   expect(stat).toStrictEqual({

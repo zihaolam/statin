@@ -1,8 +1,24 @@
-import { createKeyIndices, doesIndexExist } from "./createKeyIndices";
 import { generateKeyWhereClause } from "./generateKeyWhereClause";
 import { dd } from ".";
 import { test, expect } from "bun:test";
 import { Database } from "bun:sqlite";
+
+function doesIndexExist(
+  db: Database,
+  table: string,
+  fieldExpression: string,
+): boolean {
+  const stmt = db.prepare(`
+    SELECT 1
+    FROM sqlite_master
+    WHERE type = 'index'
+      AND tbl_name = ?
+      AND sql LIKE ?
+    LIMIT 1
+  `);
+  const result = stmt.get(table, `%${fieldExpression}%`);
+  return !!result;
+}
 
 // Create or connect to SQLite database
 const db = new Database(":memory:", {

@@ -1,22 +1,5 @@
 import { Database } from "bun:sqlite";
 
-export function doesIndexExist(
-  db: Database,
-  table: string,
-  fieldExpression: string,
-): boolean {
-  const stmt = db.prepare(`
-    SELECT 1
-    FROM sqlite_master
-    WHERE type = 'index'
-      AND tbl_name = ?
-      AND sql LIKE ?
-    LIMIT 1
-  `);
-  const result = stmt.get(table, `%${fieldExpression}%`);
-  return !!result;
-}
-
 export function createKeyIndices(db: Database, fieldsToIndex: string[]) {
   for (const table of ["stats", "stat_sketches", "events"]) {
     for (const field of fieldsToIndex) {

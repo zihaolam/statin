@@ -6,10 +6,10 @@ export type Key = JsonType;
 export function generateKeyWhereClause(
   key: JsonType,
   namespace = "",
-): { clause: string; fieldsToIndex: string[]; params: SQLQueryBindings[] } {
+): { clause: string; keyFields: string[]; params: SQLQueryBindings[] } {
   const clauses: string[] = [];
   const params: SQLQueryBindings[] = [];
-  const fieldsToIndex: string[] = [];
+  const keyFields: string[] = [];
 
   // Helper to compute the JSON path we’ll inject into json_extract()
   const path = namespace || "$";
@@ -28,10 +28,10 @@ export function generateKeyWhereClause(
     } else {
       // nested JSON value
       clauses.push(`json_extract(key, '${path}') = ?`);
-      fieldsToIndex.push(`json_extract(key, '${path}')`);
+      keyFields.push(`json_extract(key, '${path}')`);
       params.push(key);
     }
-    return { clause: clauses.join(" and "), fieldsToIndex, params };
+    return { clause: clauses.join(" and "), keyFields, params };
   }
 
   // 2) Array
@@ -41,22 +41,22 @@ export function generateKeyWhereClause(
       // special case: empty array
       if (path === "$") {
         clauses.push(`json_array_length(key) = 0`);
-        fieldsToIndex.push(`json_array_length(key)`);
+        keyFields.push(`json_array_length(key)`);
       } else {
         clauses.push(`json_array_length(json_extract(key, '${path}')) = 0`);
-        fieldsToIndex.push(`json_array_length(json_extract(key, '${path}'))`);
+        keyFields.push(`json_array_length(json_extract(key, '${path}'))`);
       }
 
-      return { clause: clauses.join(" and "), fieldsToIndex, params };
+      return { clause: clauses.join(" and "), keyFields, params };
     }
     for (const [idx, item] of key.entries()) {
       const childPath = `${path}[${idx}]`;
       const sub = generateKeyWhereClause(item, childPath);
       clauses.push(sub.clause);
       params.push(...sub.params);
-      fieldsToIndex.push(...sub.fieldsToIndex);
+      keyFields.push(...sub.keyFields);
     }
-    return { clause: clauses.join(" and "), fieldsToIndex, params };
+    return { clause: clauses.join(" and "), keyFields, params };
   }
 
   // 3) Object
@@ -65,7 +65,7 @@ export function generateKeyWhereClause(
     if (path === "$") {
       return {
         clause: "key = ?",
-        fieldsToIndex: ["key"],
+        keyFields: ["key"],
         params: ["{}"],
       };
     }
@@ -73,7 +73,7 @@ export function generateKeyWhereClause(
     // special case: empty object
     return {
       clause: `json_extract(key, ${path}) = ?`,
-      fieldsToIndex: [`json_extract(key, ${path})`],
+      keyFields: [`json_extract(key, ${path})`],
       params: ["{}"],
     };
   }
@@ -82,7 +82,7 @@ export function generateKeyWhereClause(
     const sub = generateKeyWhereClause(v, childPath);
     clauses.push(sub.clause);
     params.push(...sub.params);
-    fieldsToIndex.push(...sub.fieldsToIndex);
+    keyFields.push(...sub.keyFields);
   }
-  return { clause: clauses.join(" and "), fieldsToIndex, params };
+  return { clause: clauses.join(" and "), keyFields, params };
 }

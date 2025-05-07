@@ -617,12 +617,6 @@ export namespace dd {
     } else {
       selectedKeys = "key";
     }
-    console.info({
-      sql: outdent`
-            select ${selectedKeys}, sum(count) as count, sum(sum) as sum, min(min) as min, max(max) as max from stat_sketches ${clause};
-        `,
-      params,
-    });
 
     const stats = db
       .query<
@@ -735,8 +729,8 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
     },
     find<
       TPartialKey extends PartialKey<TKey>,
-      TGroupBy extends GroupBy<TKey> & string,
-      TSelect extends TGroupBy,
+      TGroupBy extends (GroupBy<TKey> & string)[],
+      TSelect extends TGroupBy | undefined = undefined,
     >({
       db,
       key,
@@ -753,16 +747,14 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
       start: number;
       end: number;
       duration: number;
-      select?: TSelect[];
-      groupBy?: TGroupBy[];
+      select?: TSelect;
+      groupBy?: TGroupBy;
       limit?: number;
       order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
     }) {
       return dd.find<
-        TSelect extends Array<infer TSelectElement>
-          ? TSelectElement extends keyof TKey
-            ? { [K in TSelectElement]: TKey[TSelectElement] }
-            : never
+        TSelect extends readonly any[]
+          ? { [K in TSelect[number]]: TKey[K] }
           : { key: TKey }
       >({
         db,

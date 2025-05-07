@@ -9,26 +9,17 @@ export { DDSketch };
 export { KeyMapping, LogarithmicMapping, DenseStore } from "./ddsketch";
 
 type Key = JsonType;
-type PartialKey<TKey extends Key> = TKey extends infer T
-  ? T extends JsonRecord
-    ? Partial<T>
-    : T
-  : never;
+type PartialKey<TKey extends Key> = TKey extends JsonRecord
+  ? Partial<TKey>
+  : TKey;
 
-type ExtractKey<TKey extends Key> = TKey extends JsonRecord
-  ? {
-      [K in keyof TKey]: `${Exclude<K, symbol>}${"" | `.${ExtractKey<TKey[K]>}`}`;
-    }[keyof TKey]
-  : never;
-
-// TODO: consider using an object to select
-type Select<TKey extends PartialKey<Key>> = {
-  path: TKey extends JsonRecord ? ExtractKey<TKey> : string;
-  as: string;
-  castTo?: CastTo<any>;
-}[];
-
-type CastTo<T> = (to: <U>() => U) => T;
+type GroupBy<TKey extends PartialKey<Key>> =
+  TKey extends PartialKey<JsonRecord> ? keyof TKey : never;
+type Select<TKey extends PartialKey<Key>> = TKey extends JsonRecord
+  ? keyof TKey
+  : TKey extends PartialKey<JsonRecord>
+    ? keyof TKey
+    : never;
 
 export namespace dd {
   export const DEFAULT_INTERVAL_DURATIONS: number[] = [
@@ -577,10 +568,7 @@ export namespace dd {
     };
   }
 
-  export function find<
-    TKey extends PartialKey<Key>,
-    TSelect extends Select<TKey> = Select<TKey>,
-  >({
+  export function find<TSelect extends { [key: string]: any }>({
     db,
     key,
     name,
@@ -594,10 +582,10 @@ export namespace dd {
   }: {
     db: Database;
     name: string;
-    key: TKey;
+    key: Key;
     start: number;
     end: number;
-    select?: TSelect;
+    select?: string[];
     groupBy?: string[];
     duration: number;
     limit?: number;
@@ -611,23 +599,30 @@ export namespace dd {
     params.push(start, end, duration);
 
     if (groupBy !== undefined) {
-      clause += ` group by ${groupBy.map((key) => `json_extract(key, $${key})`).join(", ")}`;
+      clause += ` group by ${groupBy.map((key) => `json_extract(key, '$.${key}')`).join(", ")}`;
     } else {
       clause += " group by key";
-    }
-
-    let selectedKeys;
-    if (select !== undefined) {
-      selectedKeys = Object.entries(select)
-        .map(([as, path]) => `json_extract(key, $${path}) as ${as}`)
-        .join(", ");
-    } else {
-      selectedKeys = "key";
     }
 
     clause += " order by ?";
     clause += " limit ?";
     params.push(order, limit);
+
+    let selectedKeys;
+
+    if (select !== undefined) {
+      selectedKeys = select
+        .map((key) => `json_extract(key, '$.${key}') as ${key}`)
+        .join(", ");
+    } else {
+      selectedKeys = "key";
+    }
+    console.info({
+      sql: outdent`
+            select ${selectedKeys}, sum(count) as count, sum(sum) as sum, min(min) as min, max(max) as max from stat_sketches ${clause};
+        `,
+      params,
+    });
 
     const stats = db
       .query<
@@ -636,16 +631,7 @@ export namespace dd {
           sum: number;
           min: number;
           max: number;
-        } & (TSelect extends undefined
-          ? { key: string }
-          : {
-              [K in TSelect[number]["as"]]: TSelect[number] extends {
-                as: K;
-                castTo: CastTo<infer R>;
-              }
-                ? R
-                : string;
-            }),
+        } & TSelect,
         SQLQueryBindings[]
       >(
         outdent`
@@ -656,12 +642,13 @@ export namespace dd {
 
     return stats.map((stat) => ({
       ...stat,
-      ...(select !== undefined
-        ? Object.fromEntries(
-            Object.entries(select).map(([as, path]) => [as, stat[path.path]]),
-          )
-        : {}),
-    }));
+      ...("key" in stat ? { key: JSON.parse(stat.key) } : {}),
+    })) as ({
+      count: number;
+      sum: number;
+      min: number;
+      max: number;
+    } & TSelect)[];
   }
 }
 
@@ -748,13 +735,16 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
     },
     find<
       TPartialKey extends PartialKey<TKey>,
-      TSelect extends Select<TPartialKey> = Select<TPartialKey>,
+      TGroupBy extends GroupBy<TPartialKey> & string,
+      TSelect extends Select<TKey> & string,
     >({
       db,
       key,
       start,
       end,
       duration,
+      select,
+      groupBy,
       limit,
       order,
     }: {
@@ -763,13 +753,23 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
       start: number;
       end: number;
       duration: number;
+      select?: TSelect[];
+      groupBy?: TGroupBy[];
       limit?: number;
       order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
     }) {
-      return dd.find<TPartialKey, TSelect>({
+      return dd.find<
+        TSelect extends Array<infer TSelectElement>
+          ? TSelectElement extends keyof TKey
+            ? { [K in TSelectElement]: TKey[TSelectElement] }
+            : never
+          : { key: TKey }
+      >({
         db,
-        key,
+        key: key as Key,
         name,
+        select,
+        groupBy,
         start,
         end,
         duration,
@@ -779,21 +779,3 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
     },
   };
 };
-
-const stats = dd.find({
-  db: new Database(),
-  name: "123",
-  key: {
-    cat: "dog",
-  },
-  start: 1,
-  end: 1,
-  duration: 5,
-  groupBy: ["cat"],
-  select: [
-    { as: "cat" as const, path: "cat", castTo: (to) => to<number>() },
-    { as: "mouse" as const, path: "cat", castTo: (to) => to<string>() },
-  ],
-});
-
-stats.map((stat) => stat.cat);

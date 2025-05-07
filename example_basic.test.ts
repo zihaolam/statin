@@ -40,10 +40,10 @@ dd.record({
 for (let i = 0; i < 5; i++) {
   dd.record({
     db,
-    name: "post.num_views",
+    name: "campaign.donations",
     key: {
-      postId: "1",
-      viewerId: "bob",
+      campaignId: "1",
+      donorId: "bob",
     },
     val: 1,
     timestamp: START_DATE + i,
@@ -53,10 +53,10 @@ for (let i = 0; i < 5; i++) {
 for (let i = 0; i < 10; i++)
   dd.record({
     db,
-    name: "post.num_views",
+    name: "campaign.donations",
     key: {
-      postId: "1",
-      viewerId: "alice",
+      campaignId: "1",
+      donorId: "alice",
     },
     val: 1,
     timestamp: START_DATE + i,
@@ -65,13 +65,13 @@ for (let i = 0; i < 10; i++)
 for (let i = 0; i < 10; i++)
   dd.record({
     db,
-    name: "post.num_views",
+    name: "campaign.donations",
     key: {
-      postId: "1",
-      viewerId: "alice",
+      campaignId: "1",
+      donorId: "alice",
     },
     val: 1,
-    timestamp: START_DATE + 80 * 1000 + i,
+    timestamp: START_DATE + 10 + i,
   });
 
 // Query for the last recorded value and its statistics
@@ -93,19 +93,17 @@ const result = dd.query({
   end: START_DATE + 120 * 1000, // end time
 });
 
-const topPosts = dd.find({
+const topDonors = dd.find<{ donorId: string }>({
   db,
-  name: "post.num_views",
+  name: "campaign.donations",
   key: {
-    postId: "1",
+    campaignId: "1",
   },
   start: START_DATE,
   end: START_DATE + 120 * 1000,
   duration: 60 * 1000,
-  opts: {
-    order: "sum desc",
-    limit: 10,
-  },
+  select: ["donorId"],
+  groupBy: ["donorId"],
 });
 
 test("basic example", () => {
@@ -162,16 +160,16 @@ test("basic example", () => {
     },
   });
 
-  expect(topPosts).toStrictEqual([
+  expect(topDonors).toStrictEqual([
     {
-      key: { postId: "1", viewerId: "alice" },
+      donorId: "alice",
       count: 20,
       sum: 20,
       min: 1,
       max: 1,
     },
     {
-      key: { postId: "1", viewerId: "bob" },
+      donorId: "bob",
       count: 5,
       sum: 5,
       min: 1,

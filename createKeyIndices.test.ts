@@ -41,7 +41,7 @@ const keyWhere = generateKeyWhereClause(key);
 
 test("indices should be created for composite key fields", () => {
   for (const table of ["stats", "stat_sketches", "events"]) {
-    for (const field of keyWhere.fieldsToIndex) {
+    for (const field of keyWhere.keyFields) {
       expect(doesIndexExist(db, table, field)).toBeTrue();
     }
   }

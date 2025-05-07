@@ -735,7 +735,7 @@ export const statin = <TKey extends Key>({ name }: { name: string }) => {
     },
     find<
       TPartialKey extends PartialKey<TKey>,
-      TGroupBy extends GroupBy<TPartialKey> & string,
+      TGroupBy extends GroupBy<TKey> & string,
       TSelect extends TGroupBy,
     >({
       db,

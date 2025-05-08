@@ -574,6 +574,7 @@ export namespace dd {
     groupBy,
     end,
     duration,
+    offset,
   }: {
     db: Database;
     name: string;
@@ -583,6 +584,7 @@ export namespace dd {
     select?: string[];
     groupBy?: string[];
     duration: number;
+    offset?: number;
     limit?: number;
     order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
   }) {
@@ -602,6 +604,11 @@ export namespace dd {
     clause += " order by ?";
     clause += " limit ?";
     params.push(order, limit);
+
+    if (offset !== undefined) {
+      clause += " offset ?";
+      params.push(offset);
+    }
 
     let selectedKeys;
 

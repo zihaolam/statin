@@ -15,11 +15,6 @@ type PartialKey<TKey extends Key> = TKey extends JsonRecord
 
 type GroupBy<TKey extends PartialKey<Key>> =
   TKey extends PartialKey<JsonRecord> ? keyof TKey : never;
-type Select<TKey extends PartialKey<Key>> = TKey extends JsonRecord
-  ? keyof TKey
-  : TKey extends PartialKey<JsonRecord>
-    ? keyof TKey
-    : never;
 
 export namespace dd {
   export const DEFAULT_INTERVAL_DURATIONS: number[] = [
@@ -648,126 +643,129 @@ export namespace dd {
 
 export type StatinSchema = Record<string, Key>;
 
-export const statin = <TKey extends Key>({ name }: { name: string }) => {
-  return {
-    record({
+export class Statin<TKey extends Key> {
+  constructor(public name: string) {}
+  record({
+    db,
+    key,
+    val,
+    timestamp,
+    intervals,
+  }: {
+    db: Database;
+    key: PartialKey<TKey>;
+    val: number | ((stat?: { value: number; recordedAt: number }) => number);
+    timestamp?: number;
+    intervals?: number[];
+  }) {
+    return dd.record({
       db,
-      key,
+      name: this.name,
+      key: key as Key,
       val,
       timestamp,
       intervals,
-    }: {
-      db: Database;
-      key: PartialKey<TKey>;
-      val: number | ((stat?: { value: number; recordedAt: number }) => number);
-      timestamp?: number;
-      intervals?: number[];
-    }) {
-      return dd.record({
-        db,
-        name,
-        key: key as Key,
-        val,
-        timestamp,
-        intervals,
-      });
-    },
-    sketch({
+    });
+  }
+  sketch({
+    db,
+    key,
+    val,
+    timestamp,
+    interval,
+  }: {
+    db: Database;
+    key: PartialKey<TKey>;
+    val: number;
+    timestamp: number;
+    interval: number;
+  }) {
+    return dd.sketch(db, this.name, key as Key, val, timestamp, interval);
+  }
+  get({ db, key }: { db: Database; key: PartialKey<TKey> }) {
+    return dd.get({
       db,
-      key,
-      val,
-      timestamp,
-      interval,
-    }: {
-      db: Database;
-      key: PartialKey<TKey>;
-      val: number;
-      timestamp: number;
-      interval: number;
-    }) {
-      return dd.sketch(db, name, key as Key, val, timestamp, interval);
-    },
-    get({ db, key }: { db: Database; key: PartialKey<TKey> }) {
-      return dd.get({
-        db,
-        name,
-        key: key as Key,
-      });
-    },
-    query({
+      name: this.name,
+      key: key as Key,
+    });
+  }
+  query({
+    db,
+    key,
+    duration,
+    start,
+    end,
+  }: {
+    db: Database;
+    key: PartialKey<TKey>;
+    duration: number;
+    start: number;
+    end: number;
+  }) {
+    return dd.query({
       db,
-      key,
+      name: this.name,
+      key: key as Key,
       duration,
       start,
       end,
-    }: {
-      db: Database;
-      key: PartialKey<TKey>;
-      duration: number;
-      start: number;
-      end: number;
-    }) {
-      return dd.query({
-        db,
-        name,
-        key: key as Key,
-        duration,
-        start,
-        end,
-      });
+    });
+  }
+  list(
+    db: Database,
+    key: PartialKey<TKey>,
+    opts?: {
+      range?: { start: number; end: number };
+      limit?: number;
+      order?: "asc" | "desc";
     },
-    list(
-      db: Database,
-      key: PartialKey<TKey>,
-      opts?: {
-        range?: { start: number; end: number };
-        limit?: number;
-        order?: "asc" | "desc";
-      },
-    ) {
-      return dd.list(db, name, key as Key, opts);
-    },
-    find<
-      TPartialKey extends PartialKey<TKey>,
-      TGroupBy extends (GroupBy<TKey> & string)[],
-      TSelect extends TGroupBy | undefined = undefined,
+  ) {
+    return dd.list(db, this.name, key as Key, opts);
+  }
+  find<
+    TPartialKey extends PartialKey<TKey>,
+    TGroupBy extends (GroupBy<TKey> & string)[],
+    TSelect extends TGroupBy | undefined = undefined,
+  >({
+    db,
+    key,
+    start,
+    end,
+    duration,
+    select,
+    groupBy,
+    limit,
+    order,
+  }: {
+    db: Database;
+    key: TPartialKey;
+    start: number;
+    end: number;
+    duration: number;
+    select?: TSelect;
+    groupBy?: TGroupBy;
+    limit?: number;
+    order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
+  }) {
+    return dd.find<
+      TSelect extends readonly any[]
+        ? { [K in TSelect[number]]: TKey[K] }
+        : { key: TKey }
     >({
       db,
-      key,
+      key: key as Key,
+      name: this.name,
+      select,
+      groupBy,
       start,
       end,
       duration,
-      select,
-      groupBy,
       limit,
       order,
-    }: {
-      db: Database;
-      key: TPartialKey;
-      start: number;
-      end: number;
-      duration: number;
-      select?: TSelect;
-      groupBy?: TGroupBy;
-      limit?: number;
-      order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
-    }) {
-      return dd.find<
-        TSelect extends readonly any[]
-          ? { [K in TSelect[number]]: TKey[K] }
-          : { key: TKey }
-      >({
-        db,
-        key: key as Key,
-        name,
-        select,
-        groupBy,
-        start,
-        end,
-        duration,
-        limit,
-        order,
-      });
-    },
-  };
-};
+    });
+  }
+}
+
+export function statin<TKey extends Key>({ name }: { name: string }) {
+  return new Statin<TKey>(name);
+}

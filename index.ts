@@ -8,7 +8,7 @@ import { createKeyIndices } from "./createKeyIndices";
 export { DDSketch };
 export { KeyMapping, LogarithmicMapping, DenseStore } from "./ddsketch";
 
-type Key = JsonType;
+export type Key = JsonType;
 type PartialKey<TKey extends Key> = TKey extends JsonRecord
   ? Partial<TKey>
   : TKey;

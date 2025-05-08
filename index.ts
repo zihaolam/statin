@@ -743,6 +743,7 @@ export class Statin<TKey extends Key> {
     groupBy,
     limit,
     order,
+    offset,
   }: {
     db: Database;
     key: TPartialKey;
@@ -753,6 +754,7 @@ export class Statin<TKey extends Key> {
     groupBy?: TGroupBy;
     limit?: number;
     order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
+    offset?: number;
   }) {
     return dd.find<
       TSelect extends readonly any[]
@@ -769,6 +771,7 @@ export class Statin<TKey extends Key> {
       duration,
       limit,
       order,
+      offset,
     });
   }
 }

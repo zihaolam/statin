@@ -16,6 +16,8 @@ type PartialKey<TKey extends Key> = TKey extends JsonRecord
 type GroupBy<TKey extends PartialKey<Key>> =
   TKey extends PartialKey<JsonRecord> ? keyof TKey : never;
 
+export type QueryResult = NonNullable<ReturnType<typeof dd.query>>;
+
 export namespace dd {
   export const DEFAULT_INTERVAL_DURATIONS: number[] = [
     1000, // second

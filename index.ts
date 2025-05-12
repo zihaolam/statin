@@ -580,7 +580,7 @@ export namespace dd {
   }: {
     db: Database;
     name: string;
-    key: Key;
+    key?: Key;
     start: number;
     end: number;
     select?: string[];
@@ -590,9 +590,14 @@ export namespace dd {
     limit?: number;
     order?: `${"sum" | "count" | "min" | "max"} ${"asc" | "desc"}`;
   }) {
-    const keyWhere = generateKeyWhereClause(key as Key);
-    let clause = `where name = ? and ${keyWhere.clause}`;
-    let params: SQLQueryBindings[] = [name, ...keyWhere.params];
+    let clause = `where name = ?`;
+    let params: SQLQueryBindings[] = [name];
+
+    if (key !== undefined) {
+      const keyWhere = generateKeyWhereClause(key as Key);
+      clause += ` and ${keyWhere.clause}`;
+      params.push(...keyWhere.params);
+    }
 
     clause += " and start >= ? and end <= ? and duration = ?";
     params.push(start, end, duration);
@@ -748,7 +753,7 @@ export class Statin<TKey extends Key> {
     offset,
   }: {
     db: Database;
-    key: TPartialKey;
+    key?: TPartialKey;
     start: number;
     end: number;
     duration: number;
